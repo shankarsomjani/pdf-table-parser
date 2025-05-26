@@ -3,7 +3,6 @@ import pdfplumber
 import pandas as pd
 import io
 import requests
-import base64
 
 # --- Page setup ---
 st.set_page_config(page_title="PDF Table Extractor", layout="centered")
@@ -16,7 +15,7 @@ uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
 mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via LLMWhisperer)"])
 
 # --- Load API key ---
-LLM_API_KEY = st.secrets.get("LLM_API_KEY")  # Recommended: use Streamlit Secrets
+LLM_API_KEY = st.secrets.get("LLM_API_KEY")
 
 # --- Process Uploaded File ---
 if uploaded_file:
@@ -45,26 +44,23 @@ if uploaded_file:
             st.error("❌ Missing LLMWhisperer API key. Please set it in Streamlit secrets.")
         else:
             with st.spinner("🔄 Uploading to LLMWhisperer and extracting tables..."):
-                file_bytes = uploaded_file.read()
-                file_b64 = base64.b64encode(file_bytes).decode()
-
                 response = requests.post(
-                    "https://llmwhisperer-api.us-central.unstract.com/api/v2/whisper",
-                    headers={"Authorization": f"Bearer {LLM_API_KEY}"},
-                    json={
-                        "file_name": uploaded_file.name,
-                        "file_data": file_b64,
-                        "output_format": "excel"
+                    "https://llmwhisperer-api.us-central.unstract.com/api/v2/whisper?mode=form&output_mode=layout_preserving",
+                    headers={
+                        "Content-Type": "application/octet-stream",
+                        "unstract-key": LLM_API_KEY
                     },
+                    data=uploaded_file.read()
                 )
 
                 if response.status_code == 200:
                     result = response.json()
-                    excel_url = result.get("data", {}).get("excel_file_url")
-                    if excel_url:
+                    download_url = result.get("data", {}).get("download_url")
+                    if download_url:
                         st.success("✅ LLM extraction complete.")
-                        st.markdown(f"[📥 Download Excel File]({excel_url})", unsafe_allow_html=True)
+                        st.markdown(f"[📥 Download Extracted File]({download_url})", unsafe_allow_html=True)
                     else:
-                        st.warning("⚠️ No Excel file returned by LLMWhisperer.")
+                        st.warning("⚠️ No download URL returned.")
                 else:
                     st.error(f"❌ LLMWhisperer API error: {response.status_code}")
+                    st.code(response.text, language="json")
