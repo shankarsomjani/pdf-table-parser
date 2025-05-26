@@ -49,7 +49,7 @@ if uploaded_file:
                 file_b64 = base64.b64encode(file_bytes).decode()
 
                 response = requests.post(
-                    "https://llmwhisperer-api.us-central.unstract.com/api/v2/extract",
+                    "https://llmwhisperer-api.us-central.unstract.com/api/v2/whisper",
                     headers={"Authorization": f"Bearer {LLM_API_KEY}"},
                     json={
                         "file_name": uploaded_file.name,
