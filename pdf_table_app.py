@@ -14,7 +14,7 @@ uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
 # Select extraction mode
 mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via LLMWhisperer)"])
 
-LLM_API_KEY = st.secrets.get("LLM_API_KEY", "GR0D-WnPVqT-6Sxg3c-ACBVmlCR4SpubugygvKvwWMM")  # or replace with real key during dev
+LLM_API_KEY = st.secrets["LLM_API_KEY"]  # or replace with real key during dev
 
 if uploaded_file:
     if mode == "Standard (Code-based)":
