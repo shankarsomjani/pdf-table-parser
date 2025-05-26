@@ -5,17 +5,20 @@ import io
 import requests
 import base64
 
+# --- Page setup ---
 st.set_page_config(page_title="PDF Table Extractor", layout="centered")
 st.title("📄 PDF Table Extractor")
 
-# Upload PDF
+# --- Upload ---
 uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
 
-# Select extraction mode
+# --- Mode selection ---
 mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via LLMWhisperer)"])
 
-LLM_API_KEY = st.secrets["LLM_API_KEY"]  # or replace with real key during dev
+# --- Load API key ---
+LLM_API_KEY = st.secrets.get("LLM_API_KEY")  # Recommended: use Streamlit Secrets
 
+# --- Process Uploaded File ---
 if uploaded_file:
     if mode == "Standard (Code-based)":
         with pdfplumber.open(uploaded_file) as pdf:
@@ -34,15 +37,14 @@ if uploaded_file:
                     df.to_excel(writer, sheet_name=name[:31], index=False)
             st.success(f"✅ Extracted {len(all_tables)} table(s)")
             st.download_button("📥 Download Excel File", output.getvalue(), "tables.xlsx")
-
         else:
             st.warning("⚠️ No tables found using standard method.")
 
     elif mode == "LLM (via LLMWhisperer)":
-        if not LLM_API_KEY or LLM_API_KEY == "GR0D-WnPVqT-6Sxg3c-ACBVmlCR4SpubugygvKvwWMM":
-            st.error("❌ Missing or invalid LLMWhisperer API key. Add it to Streamlit secrets or code.")
+        if not LLM_API_KEY:
+            st.error("❌ Missing LLMWhisperer API key. Please set it in Streamlit secrets.")
         else:
-            with st.spinner("Uploading to LLMWhisperer..."):
+            with st.spinner("🔄 Uploading to LLMWhisperer and extracting tables..."):
                 file_bytes = uploaded_file.read()
                 file_b64 = base64.b64encode(file_bytes).decode()
 
@@ -63,6 +65,6 @@ if uploaded_file:
                         st.success("✅ LLM extraction complete.")
                         st.markdown(f"[📥 Download Excel File]({excel_url})", unsafe_allow_html=True)
                     else:
-                        st.warning("No Excel file returned by LLMWhisperer.")
+                        st.warning("⚠️ No Excel file returned by LLMWhisperer.")
                 else:
                     st.error(f"❌ LLMWhisperer API error: {response.status_code}")
