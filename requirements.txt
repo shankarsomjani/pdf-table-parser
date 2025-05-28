@@ -5,3 +5,4 @@ openpyxl
 requests
 llmwhisperer-client
 unstract-client
+adobe-pdfservices-sdk==1.2.1
