@@ -10,7 +10,7 @@ from unstract.llmwhisperer.client_v2 import LLMWhispererClientException
 
 # --- Page setup ---
 st.set_page_config(page_title="PDF Table Extractor", layout="centered")
-st.title("\ud83d\udcc4 PDF Table Extractor")
+st.title("📄 PDF Table Extractor")
 
 # --- Upload ---
 uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
