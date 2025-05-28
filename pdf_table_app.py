@@ -72,11 +72,13 @@ def apply_company_mappings(df, company, mapping_df):
     # Debugging: Log the replace dictionary to see the cleaned "Original" and mapped values
     st.write("Replace Dictionary:", replace_dict)
 
-    # Debugging: Log row 139 from the Excel file before replacement (138 for 0-indexed pandas)
-    st.write("Row 139 from Excel data before replacement:", df.iloc[138])  # Row 139 in Excel corresponds to index 138 in pandas
+    # Debugging: Log row 139 (0-indexed as 138) from the Excel file before replacement
+    st.write("Row 139 (index 138) from Excel data before replacement:", df.iloc[138])  # Row 139 corresponds to index 138 in pandas
 
-    # Debugging: Check the first few rows to inspect data
-    st.write("First few rows of Excel data before replacement:", df.head())
+    # Print Row 138, Row 139, and Row 140 to ensure we're on the correct row
+    st.write("Row 138 (index 137) from Excel:", df.iloc[137])  # Just before Row 139
+    st.write("Row 139 (index 138) from Excel:", df.iloc[138])  # Row 139
+    st.write("Row 140 (index 139) from Excel:", df.iloc[139])  # Just after Row 139
 
     # Iterate through column A and apply the mappings
     df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: replace_dict.get(normalize_item(x), x))
