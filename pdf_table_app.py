@@ -2,9 +2,7 @@ import streamlit as st
 import pdfplumber
 import pandas as pd
 import io
-import base64
-from unstract.llmwhisperer import LLMWhispererClientV2
-from unstract.llmwhisperer.client_v2 import LLMWhispererClientException
+from llmwhisperer_client import LLMWhispererClientV2
 
 # --- Page setup ---
 st.set_page_config(page_title="PDF Table Extractor", layout="centered")
@@ -16,8 +14,8 @@ uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
 # --- Mode selection ---
 mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via LLMWhisperer)"])
 
-# --- Load API key ---
-LLM_API_KEY = st.secrets.get("LLM_API_KEY")  # Make sure to add this in .streamlit/secrets.toml
+# --- Load API key from secrets ---
+LLM_API_KEY = st.secrets.get("LLM_API_KEY")
 
 # --- Process Uploaded File ---
 if uploaded_file:
@@ -45,23 +43,25 @@ if uploaded_file:
         if not LLM_API_KEY:
             st.error("❌ Missing LLMWhisperer API key. Please set it in Streamlit secrets.")
         else:
-            with st.spinner("🔄 Uploading to LLMWhisperer and extracting tables..."):
-                try:
-                    client = LLMWhispererClientV2(api_key=LLM_API_KEY)
-                    result = client.extract(
-                        file_name=uploaded_file.name,
-                        file_data=uploaded_file.read(),
-                        output_format="excel",
-                        output_mode="layout_preserving",
+            try:
+                # Initialize LLMWhisperer client
+                client = LLMWhispererClientV2(api_key=LLM_API_KEY)
+
+                with st.spinner("🔄 Uploading to LLMWhisperer and extracting tables..."):
+                    file_bytes = uploaded_file.read()
+
+                    result = client.whisper(
+                        file_bytes,
+                        filename=uploaded_file.name,
+                        output_mode="layout_preserving"
                     )
 
-                    excel_url = result.get("data", {}).get("excel_file_url")
+                    excel_url = result.get("excel_file_url")
                     if excel_url:
                         st.success("✅ LLM extraction complete.")
                         st.markdown(f"[📥 Download Excel File]({excel_url})", unsafe_allow_html=True)
                     else:
                         st.warning("⚠️ No Excel file returned by LLMWhisperer.")
-                except LLMWhispererClientException as e:
-                    st.error(f"❌ LLMWhisperer error: {e}")
-                except Exception as ex:
-                    st.error(f"❌ Unexpected error: {ex}")
+
+            except Exception as e:
+                st.error(f"❌ Unexpected error: {e}")
