@@ -5,6 +5,7 @@ import io
 import os
 import time
 import zipfile
+import re
 from datetime import datetime
 from openpyxl import load_workbook
 from openpyxl.styles import Font
@@ -24,17 +25,34 @@ from adobe.pdfservices.operation.pdfjobs.params.extract_pdf.extract_pdf_params i
 from adobe.pdfservices.operation.pdfjobs.params.extract_pdf.extract_renditions_element_type import ExtractRenditionsElementType
 from adobe.pdfservices.operation.pdfjobs.result.extract_pdf_result import ExtractPDFResult
 
+# --- Utility Functions ---
+def normalize_item(text):
+    return re.sub(r"^\s*[\(\[\-]?\s*[a-zA-Z0-9]+\s*[\)\.\-]?\s*", "", str(text)).strip()
+
+def apply_company_mappings(df, company, mapping_df):
+    if 'A' not in df.columns:
+        return df
+    company_map = mapping_df[mapping_df['Company'].str.lower() == company.lower()]
+    replace_dict = {
+        normalize_item(row['Original']): row['Mapped']
+        for _, row in company_map.iterrows()
+    }
+    df['A'] = df['A'].apply(lambda x: replace_dict.get(normalize_item(x), x))
+    return df
+
 # --- Page setup ---
 st.set_page_config(page_title="PDF Table Extractor", layout="centered")
 st.title("\U0001F4C4 PDF Table Extractor")
 
+# --- Load company mapping CSV ---
+mapping_df = pd.read_csv("company_mappings.csv") if os.path.exists("company_mappings.csv") else pd.DataFrame(columns=['Company', 'Original', 'Mapped'])
+companies = sorted(mapping_df['Company'].unique()) if not mapping_df.empty else []
+
+# --- Company selection ---
+selected_company = st.selectbox("Select the company:", companies) if companies else None
+
 # --- Upload ---
 uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
-
-# --- Company Mapping ---
-mapping_df = pd.read_csv("company_mappings.csv")
-companies = sorted(mapping_df['Company'].unique())
-selected_company = st.selectbox("Select Company", companies)
 
 # --- Mode selection ---
 mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via LLMWhisperer)", "Adobe PDF Services"])
@@ -46,17 +64,15 @@ LLM_API_KEY = st.secrets.get("LLM_API_KEY")
 ADOBE_CLIENT_ID = os.getenv("PDF_SERVICES_CLIENT_ID")
 ADOBE_CLIENT_SECRET = os.getenv("PDF_SERVICES_CLIENT_SECRET")
 
-# --- Adobe Table Formatter with Mapping ---
-def merge_adobe_tables(zip_path: str, company: str) -> bytes:
+# --- Adobe Table Formatter ---
+def merge_adobe_tables(zip_path: str, selected_company=None) -> bytes:
     output = io.BytesIO()
     from openpyxl import Workbook
     wb = Workbook()
     ws = wb.active
     ws.title = "Combined Tables"
-
-    company_map = mapping_df[mapping_df['Company'] == company].set_index('Original')['Mapped'].to_dict()
-
     table_count = 1
+
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         file_names = sorted([f for f in zip_ref.namelist() if f.endswith(".xlsx")])
         for file in file_names:
@@ -64,10 +80,8 @@ def merge_adobe_tables(zip_path: str, company: str) -> bytes:
                 df = pd.read_excel(f)
                 if df.empty:
                     continue
-
-                if df.columns[0]:
-                    df.iloc[:, 0] = df.iloc[:, 0].replace(company_map)
-
+                if selected_company and not mapping_df.empty:
+                    df = apply_company_mappings(df, selected_company, mapping_df)
                 ws.append([f"Table {table_count}"])
                 ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=12)
                 for r in dataframe_to_rows(df, index=False, header=True):
@@ -109,7 +123,7 @@ if uploaded_file:
 
             excel_bytes = merge_adobe_tables(zip_path, selected_company)
             st.success("✅ Adobe PDF Services extraction complete.")
-            st.download_button("📊 Download Mapped Excel", excel_bytes, f"adobe_tables_{timestamp}.xlsx")
+            st.download_button("📊 Download Formatted Excel", excel_bytes, f"adobe_tables_{timestamp}.xlsx")
 
         except (ServiceApiException, ServiceUsageException, SdkException) as e:
             st.error(f"❌ Adobe API error: {str(e)}")
