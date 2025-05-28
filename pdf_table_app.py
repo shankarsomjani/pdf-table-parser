@@ -20,11 +20,14 @@ def sanitize_text(text):
 
 def normalize_item(text):
     """
-    Normalize the text by stripping, cleaning extra spaces, and removing unwanted characters.
+    Normalize the text by:
+    - Stripping leading/trailing spaces
+    - Cleaning up line breaks and extra spaces
     """
-    # Clean leading/trailing spaces and normalize spaces in the middle
+    # Ensure the text is a string, strip extra spaces, and normalize spaces between words
     text = str(text).strip()
     text = ' '.join(text.split())  # Normalize spaces between words
+    text = text.replace('\n', ' ').replace('\r', '')  # Remove line breaks
     text = sanitize_text(text)  # Apply sanitization here
     return text.lower()
 
