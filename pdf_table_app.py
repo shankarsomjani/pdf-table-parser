@@ -40,6 +40,7 @@ def normalize_item(text):
 
     # Step 1: Clean out escape sequences like _x000D_, _x0009_, etc.
     text = clean_escape_sequences(text)
+    st.write(f"Cleaned text after removing escape sequences: {text}")  # Log cleaned text
 
     # Step 2: Remove any remaining line breaks, tabs, and multiple spaces between words
     text = re.sub(r'\s+', ' ', text)  # Replace any whitespace (newlines, tabs, multiple spaces) with a single space
@@ -77,12 +78,11 @@ def apply_company_mappings(df, company, mapping_df):
     # Debugging: Log row 139 (0-indexed as 138) from the Excel file before replacement
     st.write("Row 139 (index 138) from Excel data before replacement:", df.iloc[138])  # Row 139 corresponds to index 138 in pandas
 
-    # Print Row 138, Row 139, and Row 140 to ensure we're on the correct row
-    st.write("Row 138 (index 137) from Excel:", df.iloc[137])  # Just before Row 139
-    st.write("Row 139 (index 138) from Excel:", df.iloc[138])  # Row 139
-    st.write("Row 140 (index 139) from Excel:", df.iloc[139])  # Just after Row 139
+    # Debugging: Clean Row 139 and log it
+    cleaned_row_139 = normalize_item(df.iloc[138])
+    st.write(f"Cleaned Row 139: {cleaned_row_139}")
 
-    # Step: Clean and replace values in column A
+    # Apply the mapping replacement
     df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: replace_dict.get(normalize_item(x), x))
 
     # Log the first few rows after replacement
