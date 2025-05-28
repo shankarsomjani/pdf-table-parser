@@ -2,7 +2,9 @@ import streamlit as st
 import pdfplumber
 import pandas as pd
 import io
-import requests
+import base64
+
+from llm_whisperer import LLMWhispererClient  # Official client
 
 # --- Page setup ---
 st.set_page_config(page_title="PDF Table Extractor", layout="centered")
@@ -15,7 +17,7 @@ uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
 mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via LLMWhisperer)"])
 
 # --- Load API key ---
-LLM_API_KEY = st.secrets.get("LLM_API_KEY")
+LLM_API_KEY = st.secrets.get("LLM_API_KEY")  # Set in .streamlit/secrets.toml
 
 # --- Process Uploaded File ---
 if uploaded_file:
@@ -43,24 +45,20 @@ if uploaded_file:
         if not LLM_API_KEY:
             st.error("❌ Missing LLMWhisperer API key. Please set it in Streamlit secrets.")
         else:
-            with st.spinner("🔄 Uploading to LLMWhisperer and extracting tables..."):
-                response = requests.post(
-                    "https://llmwhisperer-api.us-central.unstract.com/api/v2/whisper?mode=form&output_mode=layout_preserving",
-                    headers={
-                        "Content-Type": "application/octet-stream",
-                        "unstract-key": LLM_API_KEY
-                    },
-                    data=uploaded_file.read()
+            with st.spinner("🔄 Uploading to LLMWhisperer and extracting..."):
+                # Initialize client
+                client = LLMWhispererClient(api_key=LLM_API_KEY)
+
+                # Send file
+                result = client.file_to_data(
+                    file=uploaded_file,
+                    file_name=uploaded_file.name,
+                    mode="form",
+                    output_mode="layout_preserving"
                 )
 
-                if response.status_code == 200:
-                    result = response.json()
-                    download_url = result.get("data", {}).get("download_url")
-                    if download_url:
-                        st.success("✅ LLM extraction complete.")
-                        st.markdown(f"[📥 Download Extracted File]({download_url})", unsafe_allow_html=True)
-                    else:
-                        st.warning("⚠️ No download URL returned.")
+                if "download_url" in result:
+                    st.success("✅ LLM extraction complete.")
+                    st.markdown(f"[📥 Download Extracted File]({result['download_url']})", unsafe_allow_html=True)
                 else:
-                    st.error(f"❌ LLMWhisperer API error: {response.status_code}")
-                    st.code(response.text, language="json")
+                    st.warning("⚠️ LLMWhisperer did not return a download URL.")
