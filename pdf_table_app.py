@@ -6,9 +6,9 @@ import os
 import time
 import zipfile
 from datetime import datetime
-from openpyxl import load_workbook, Workbook
+from openpyxl import load_workbook
 from openpyxl.styles import Font
-from openpyxl.utils import get_column_letter
+from openpyxl.utils.dataframe import dataframe_to_rows
 
 from unstract.llmwhisperer import LLMWhispererClientV2
 from unstract.llmwhisperer.client_v2 import LLMWhispererClientException
@@ -41,54 +41,39 @@ LLM_API_KEY = st.secrets.get("LLM_API_KEY")
 ADOBE_CLIENT_ID = os.getenv("PDF_SERVICES_CLIENT_ID")
 ADOBE_CLIENT_SECRET = os.getenv("PDF_SERVICES_CLIENT_SECRET")
 
-# --- Adobe Table Formatter (Preserve formatting) ---
+
+# --- Adobe Table Formatter ---
 def merge_adobe_tables(zip_path: str) -> bytes:
     output = io.BytesIO()
-    master_wb = Workbook()
-    master_ws = master_wb.active
-    master_ws.title = "Combined Tables"
+    writer = pd.ExcelWriter(output, engine='openpyxl')
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Combined Tables"
 
-    current_row = 1
     table_count = 1
-
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         file_names = sorted([f for f in zip_ref.namelist() if f.endswith(".xlsx")])
-
         for file in file_names:
             with zip_ref.open(file) as f:
-                temp_wb = load_workbook(f)
-                temp_ws = temp_wb.active
-                max_col = temp_ws.max_column
-                col_widths = [temp_ws.column_dimensions[get_column_letter(col)].width for col in range(1, max_col+1)]
-
-                # Section Title
-                master_ws.cell(row=current_row, column=1, value=f"Table {table_count}").font = Font(bold=True, size=12)
-                current_row += 1
-
-                # Copy rows with styles
-                for row in temp_ws.iter_rows():
-                    for col_idx, cell in enumerate(row, start=1):
-                        new_cell = master_ws.cell(row=current_row, column=col_idx, value=cell.value)
-                        if cell.has_style:
-                            new_cell.font = cell.font
-                            new_cell.border = cell.border
-                            new_cell.fill = cell.fill
-                            new_cell.number_format = cell.number_format
-                            new_cell.protection = cell.protection
-                            new_cell.alignment = cell.alignment
-                    current_row += 1
-
-                # Copy column widths
-                for idx, width in enumerate(col_widths, start=1):
-                    if width:
-                        master_ws.column_dimensions[get_column_letter(idx)].width = width
-
-                current_row += 2
+                df = pd.read_excel(f)
+                if df.empty:
+                    continue
+                # Add section title
+                ws.append([f"Table {table_count}"])
+                ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=12)
+                # Write the table
+                for r in dataframe_to_rows(df, index=False, header=True):
+                    ws.append(r)
+                # Add 2 blank rows
+                ws.append([])
+                ws.append([])
                 table_count += 1
 
-    master_wb.save(output)
+    wb.save(output)
     output.seek(0)
     return output.getvalue()
+
 
 # --- Process Uploaded File ---
 if uploaded_file:
@@ -136,18 +121,19 @@ if uploaded_file:
                         st.stop()
 
                     st.info("⏳ Waiting for LLMWhisperer to process the file...")
+                    status = None
                     for _ in range(20):
                         status_info = whisperer.whisper_status(whisper_hash=whisper_hash)
                         status = status_info.get("status")
                         if status == "processed":
                             break
                         elif status == "error":
-                            st.error("❌ LLMWhisperer reported an error.")
+                            st.error("❌ LLMWhisperer reported an error while processing the document.")
                             st.stop()
                         time.sleep(2)
 
                     if status != "processed":
-                        st.warning("⚠️ Timed out waiting for LLMWhisperer.")
+                        st.warning("⚠️ Timed out waiting for LLMWhisperer to finish processing.")
                         st.stop()
 
                     result = whisperer.whisper_retrieve(whisper_hash=whisper_hash)
@@ -156,7 +142,7 @@ if uploaded_file:
                     st.json(result)
 
             except LLMWhispererClientException as e:
-                st.error(f"❌ LLMWhisperer error: {str(e)}")
+                st.error(f"❌ LLMWhisperer API error: {str(e)}")
             except Exception as e:
                 st.error(f"❌ Unexpected error: {str(e)}")
 
