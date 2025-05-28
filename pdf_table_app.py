@@ -22,15 +22,17 @@ def normalize_item(text):
     """
     Normalize the text by:
     - Stripping leading/trailing spaces
-    - Cleaning up line breaks, tabs, and extra spaces
-    - Removing invisible characters
+    - Removing line breaks, tabs, and normalizing spaces
     """
-    # Ensure the text is a string, strip extra spaces, and normalize spaces between words
     text = str(text).strip()
     
-    # Remove line breaks, tabs, and multiple spaces between words
+    # Remove all line breaks, tabs, and multiple spaces between words
     text = re.sub(r'\s+', ' ', text)  # Replace any whitespace (newlines, tabs, multiple spaces) with a single space
     text = text.replace('\n', ' ').replace('\r', '').replace('\t', ' ')  # Remove line breaks and tabs
+    
+    # Remove any non-printable characters, just in case
+    text = ''.join(char for char in text if char.isprintable())
+    
     text = sanitize_text(text)  # Apply sanitization here
     return text.lower()
 
