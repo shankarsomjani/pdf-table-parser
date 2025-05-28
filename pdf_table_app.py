@@ -1,12 +1,13 @@
-import openpyxl
+import os
+import streamlit as st
 import pandas as pd
 import io
+import openpyxl
+from openpyxl.utils.dataframe import dataframe_to_rows
 import re
-import streamlit as st
 
 # --- Function to replace _x000D_ and other unwanted characters ---
 def replace_x000d(excel_file):
-    # Load the workbook and the active sheet
     wb = openpyxl.load_workbook(excel_file)
     sheet = wb.active
     
@@ -18,7 +19,6 @@ def replace_x000d(excel_file):
                 cleaned_value = cell.value.replace('_x000D_', '').replace('\r', ' ').replace('\n', ' ').strip()
                 cell.value = cleaned_value
     
-    # Return the cleaned workbook
     return wb
 
 # --- Function to clean prefixes like "a)", "b)" and similar ---
@@ -27,7 +27,6 @@ def clean_prefixes(text):
     Remove prefixes like 'a)', 'b)', '-', etc., from the text to match the CSV data.
     """
     text = str(text).strip()  # Convert to string and remove leading/trailing spaces
-    # Remove leading 'a)', 'b)', '-', etc., and any spaces or dots
     text = re.sub(r"^[a-zA-Z\)\-\.\s]+", "", text)  # Remove any leading 'a)', 'b)', '-', etc.
     return text
 
@@ -81,7 +80,6 @@ if uploaded_file:
         wb = replace_x000d(uploaded_file)
         
         # Convert the cleaned workbook back to a dataframe for further processing
-        # Extracting the sheet into a dataframe using openpyxl
         sheet = wb.active
         data = sheet.values
         columns = next(data)[0:]  # Get the header
