@@ -2,9 +2,7 @@ import streamlit as st
 import pdfplumber
 import pandas as pd
 import io
-import tempfile
-import os
-
+import time
 from unstract.llmwhisperer import LLMWhispererClientV2
 from unstract.llmwhisperer.client_v2 import LLMWhispererClientException
 
@@ -21,7 +19,6 @@ mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via L
 # --- Load API key ---
 LLM_API_KEY = st.secrets.get("LLM_API_KEY")
 
-# --- Main logic ---
 if uploaded_file:
     if mode == "Standard (Code-based)":
         with pdfplumber.open(uploaded_file) as pdf:
@@ -47,29 +44,37 @@ if uploaded_file:
         if not LLM_API_KEY:
             st.error("❌ Missing LLMWhisperer API key. Please set it in Streamlit secrets.")
         else:
-            tmp_path = None
             try:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-                    tmp_file.write(uploaded_file.read())
-                    tmp_path = tmp_file.name
-
-                st.info("🔁 Uploading to LLMWhisperer and extracting content...")
-
+                st.spinner("🔄 Uploading to LLMWhisperer and extracting...")
                 client = LLMWhispererClientV2(api_key=LLM_API_KEY)
-                result = client.whisper(
-                    file_path=tmp_path,
+                response = client.whisper(
+                    file=uploaded_file,
                     mode="form",
-                    output_mode="layout_preserving"
+                    output_mode="layout_preserving",
+                    filename=uploaded_file.name
                 )
+                whisper_hash = response.get("whisper_hash")
+                if not whisper_hash:
+                    st.error("❌ No whisper_hash returned by API.")
+                else:
+                    st.info("⏳ Waiting for processing to complete...")
+                    for _ in range(10):
+                        time.sleep(5)
+                        status = client.whisper_status(whisper_hash=whisper_hash)
+                        if status.get("status") == "processed":
+                            break
+                    else:
+                        st.warning("⚠️ Processing timed out. Try again later.")
+                        st.stop()
 
-                st.success("✅ LLM extraction complete.")
-                st.subheader("📄 Extracted Content")
-                st.json(result)
+                    result = client.whisper_retrieve(whisper_hash=whisper_hash)
+                    if result:
+                        st.success("✅ LLM extraction complete.")
+                        st.json(result)
+                    else:
+                        st.warning("⚠️ No result returned by LLMWhisperer.")
 
             except LLMWhispererClientException as e:
-                st.error(f"❌ LLMWhisperer error: {str(e)}")
-            except Exception as e:
-                st.error(f"❌ Unexpected error: {str(e)}")
-            finally:
-                if tmp_path and os.path.exists(tmp_path):
-                    os.remove(tmp_path)
+                st.error(f"❌ API error: {str(e)}")
+            except Exception as ex:
+                st.error(f"❌ Unexpected error: {str(ex)}")
