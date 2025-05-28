@@ -2,57 +2,27 @@ import os
 import streamlit as st
 import pandas as pd
 import io
-import re
+import openpyxl
+from openpyxl.utils.dataframe import dataframe_to_rows
 
-# --- Utility Functions ---
-def sanitize_text(text):
-    """
-    This function replaces any problematic characters with a placeholder or removes them.
-    Specifically designed to handle surrogate pairs and non-UTF-8 characters.
-    """
-    try:
-        # Remove any surrogate pairs or problematic sequences
-        text = text.encode('utf-8', 'ignore').decode('utf-8')
-    except UnicodeDecodeError:
-        # If still problematic, return an empty string or placeholder
-        text = ''.join([c if ord(c) < 128 else '' for c in text])
-    return text
-
-def clean_escape_sequences(text):
-    """
-    Clean out any HTML/XML escape sequences like "_x000D_", "_x0009_", etc.
-    This is specifically to remove unwanted characters like carriage returns, tabs, etc.
-    """
-    # Remove all escape sequences like _x000D_, _x0009_ (tab), _x000A_ (newline)
-    text = re.sub(r'_x000D_|_x0009_|_x000A_|_x0020_', ' ', text)  # Replace escape sequences with space
-    text = text.replace('_x000D_', '')  # Specifically remove _x000D_ (carriage return)
-    return text
-
-def normalize_item(text):
-    """
-    Normalize the text by:
-    - Stripping leading/trailing spaces
-    - Removing line breaks, tabs, extra spaces
-    - Removing invisible characters
-    - Handling escape sequences like "_x000D_"
-    """
-    text = str(text).strip()
-
-    # Step 1: Clean out escape sequences like _x000D_, _x0009_, etc.
-    text = clean_escape_sequences(text)
-    st.write(f"Cleaned text after removing escape sequences: {text}")  # Log cleaned text
-
-    # Step 2: Remove any remaining line breaks, tabs, and multiple spaces between words
-    text = re.sub(r'\s+', ' ', text)  # Replace any whitespace (newlines, tabs, multiple spaces) with a single space
-    text = text.replace('\n', ' ').replace('\r', '').replace('\t', ' ')  # Remove line breaks and tabs
+# --- Function to replace _x000D_ and other unwanted characters ---
+def replace_x000d(excel_file):
+    # Load the workbook and the active sheet
+    wb = openpyxl.load_workbook(excel_file)
+    sheet = wb.active
     
-    # Step 3: Remove any non-printable characters
-    text = ''.join(char for char in text if char.isprintable())
+    # Iterate through all rows and columns to clean the data
+    for row in sheet.iter_rows():
+        for cell in row:
+            if cell.value and isinstance(cell.value, str):
+                # Replace _x000D_ and other unwanted characters
+                cleaned_value = cell.value.replace('_x000D_', '').replace('\r', ' ').replace('\n', ' ').strip()
+                cell.value = cleaned_value
     
-    # Final sanitization
-    text = sanitize_text(text)  # Apply sanitization here
-    return text.lower()
+    # Return the cleaned workbook
+    return wb
 
+# --- Function to apply company-specific mappings ---
 def apply_company_mappings(df, company, mapping_df):
     """
     Apply company-specific mappings to the dataframe.
@@ -68,26 +38,13 @@ def apply_company_mappings(df, company, mapping_df):
         return df  # If no mappings found for the selected company, return the original dataframe
     
     replace_dict = {
-        normalize_item(row['Original']): row['Mapped']
+        row['Original'].lower(): row['Mapped']
         for _, row in company_map.iterrows()
     }
 
-    # Debugging: Log the replace dictionary to see the cleaned "Original" and mapped values
-    st.write("Replace Dictionary:", replace_dict)
-
-    # Debugging: Log row 139 (0-indexed as 138) from the Excel file before replacement
-    st.write("Row 139 (index 138) from Excel data before replacement:", df.iloc[138])  # Row 139 corresponds to index 138 in pandas
-
-    # Debugging: Clean Row 139 and log it
-    cleaned_row_139 = normalize_item(df.iloc[138])
-    st.write(f"Cleaned Row 139: {cleaned_row_139}")
-
     # Apply the mapping replacement
-    df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: replace_dict.get(normalize_item(x), x))
+    df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: replace_dict.get(x.lower(), x))
 
-    # Log the first few rows after replacement
-    st.write("First few rows of Excel data after replacement:", df.head())
-    
     return df
 
 # --- Page setup ---
@@ -107,29 +64,31 @@ uploaded_file = st.file_uploader("Upload the processed Adobe Excel file", type="
 # --- Process Uploaded Excel File ---
 if uploaded_file:
     try:
-        # Load the uploaded Excel file
-        df = pd.read_excel(uploaded_file, sheet_name=None)  # Read all sheets
-        sheet_names = df.keys()
+        # Step 1: Clean the Excel file by removing _x000D_ and other unwanted characters
+        wb = replace_x000d(uploaded_file)
         
-        # Select the sheet to process
-        selected_sheet = st.selectbox("Select the sheet to update:", sheet_names)
-        
-        # Get the selected sheet's dataframe
-        df = df[selected_sheet]
-        
+        # Convert the cleaned workbook back to a dataframe for further processing
+        # Extracting the sheet into a dataframe using openpyxl
+        sheet = wb.active
+        data = sheet.values
+        columns = next(data)[0:]  # Get the header
+        df = pd.DataFrame(data, columns=columns)
+
+        # Step 2: Apply company-specific mappings
         if selected_company and not mapping_df.empty:
-            # Apply company-specific mappings to the dataframe (replace items in column A)
             df = apply_company_mappings(df, selected_company, mapping_df)
-            
-            st.success(f"✅ Table updated with mappings for {selected_company}")
-        
-        # Allow user to download the updated file
+
+        # Step 3: Save the cleaned and mapped workbook into a BytesIO object
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name=selected_sheet)
+            df.to_excel(writer, index=False, sheet_name=sheet.title)
         
         output.seek(0)
-        st.download_button("📊 Download Updated Excel", output, f"updated_{selected_sheet}.xlsx")
-    
+
+        # Allow user to download the cleaned and mapped Excel file
+        st.download_button("📊 Download Cleaned and Updated Excel", output, "cleaned_and_updated.xlsx")
+        
+        st.success("✅ Excel file cleaned and updated successfully!")
+
     except Exception as e:
         st.error(f"❌ Error processing the file: {str(e)}")
