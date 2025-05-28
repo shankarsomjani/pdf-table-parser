@@ -27,6 +27,7 @@ def clean_prefixes(text):
     Remove prefixes like 'a)', 'b)', '-', etc., from the text to match the CSV data.
     """
     text = str(text).strip()  # Convert to string and remove leading/trailing spaces
+    # Remove leading 'a)', 'b)', '-', etc., and any spaces or dots
     text = re.sub(r"^[a-zA-Z\)\-\.\s]+", "", text)  # Remove any leading 'a)', 'b)', '-', etc.
     return text
 
