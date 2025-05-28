@@ -2,6 +2,8 @@ import streamlit as st
 import pdfplumber
 import pandas as pd
 import io
+import os
+import time
 from unstract.llmwhisperer import LLMWhispererClientV2
 from unstract.llmwhisperer.client_v2 import LLMWhispererClientException
 
@@ -36,7 +38,7 @@ if uploaded_file:
                 for name, df in all_tables:
                     df.to_excel(writer, sheet_name=name[:31], index=False)
             st.success(f"✅ Extracted {len(all_tables)} table(s)")
-            st.download_button("📥 Download Excel File", output.getvalue(), "tables.xlsx")
+            st.download_button("📅 Download Excel File", output.getvalue(), "tables.xlsx")
         else:
             st.warning("⚠️ No tables found using standard method.")
 
@@ -48,20 +50,42 @@ if uploaded_file:
                 with st.spinner("🔄 Sending file to LLMWhisperer..."):
                     whisperer = LLMWhispererClientV2(api_key=LLM_API_KEY, logging_level="DEBUG")
 
-                    # Save uploaded file to temp path for reading as binary
-                    with open("/tmp/uploaded_llm.pdf", "wb") as tmp_file:
-                        tmp_file.write(uploaded_file.read())
+                    temp_path = "/tmp/uploaded_llm.pdf"
+                    with open(temp_path, "wb") as f:
+                        f.write(uploaded_file.read())
 
-                    with open("/tmp/uploaded_llm.pdf", "rb") as f:
-                        result = whisperer.whisper(
-                            file_obj=f,
-                            filename=uploaded_file.name,
-                            mode="form",
-                            output_mode="layout_preserving"
-                        )
+                    job_info = whisperer.whisper(
+                        file_path=temp_path,
+                        filename=uploaded_file.name,
+                        mode="form",
+                        output_mode="layout_preserving"
+                    )
 
-                    st.success("✅ LLMWhisperer job submitted.")
-                    st.subheader("LLMWhisperer Output:")
+                    whisper_hash = job_info.get("whisper_hash")
+                    if not whisper_hash:
+                        st.error("❌ Failed to initiate LLMWhisperer job.")
+                        st.stop()
+
+                    # Polling until status is processed
+                    st.info("⏳ Waiting for LLMWhisperer to process the file...")
+                    status = None
+                    for _ in range(20):  # Max ~40 seconds
+                        status_info = whisperer.whisper_status(whisper_hash=whisper_hash)
+                        status = status_info.get("status")
+                        if status == "processed":
+                            break
+                        elif status == "error":
+                            st.error("❌ LLMWhisperer reported an error while processing the document.")
+                            st.stop()
+                        time.sleep(2)
+
+                    if status != "processed":
+                        st.warning("⚠️ Timed out waiting for LLMWhisperer to finish processing.")
+                        st.stop()
+
+                    result = whisperer.whisper_retrieve(whisper_hash=whisper_hash)
+                    st.success("✅ LLMWhisperer processing complete.")
+                    st.subheader("LLMWhisperer Extracted Output:")
                     st.json(result)
 
             except LLMWhispererClientException as e:
