@@ -23,14 +23,15 @@ def clean_escape_sequences(text):
     Clean out any HTML/XML escape sequences like "_x000D_", "_x0009_", etc.
     This is specifically to remove unwanted characters like carriage returns, tabs, etc.
     """
-    text = re.sub(r'_x000D_|_x0009_|_x000A_|_x0020_|_x000A', ' ', text)  # Replace known escape sequences with spaces
+    # Remove known escape sequences like "_x000D_", "_x0009_", "_x000A_", etc.
+    text = re.sub(r'_x000D_|_x0009_|_x000A_|_x0020_|_x000A', ' ', text)  # Replace escape sequences with spaces
     return text
 
 def normalize_item(text):
     """
     Normalize the text by:
     - Stripping leading/trailing spaces
-    - Removing line breaks, tabs, and extra spaces
+    - Removing line breaks, tabs, extra spaces
     - Removing invisible characters
     - Handling escape sequences like "_x000D_"
     """
