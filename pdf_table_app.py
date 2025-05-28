@@ -47,8 +47,8 @@ if uploaded_file:
         if not LLM_API_KEY:
             st.error("❌ Missing LLMWhisperer API key. Please set it in Streamlit secrets.")
         else:
+            tmp_path = None
             try:
-                # Save to temporary file
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
                     tmp_file.write(uploaded_file.read())
                     tmp_path = tmp_file.name
@@ -57,7 +57,7 @@ if uploaded_file:
 
                 client = LLMWhispererClientV2(api_key=LLM_API_KEY)
                 result = client.whisper(
-                    tmp_path,
+                    file_path=tmp_path,
                     mode="form",
                     output_mode="layout_preserving"
                 )
@@ -74,5 +74,5 @@ if uploaded_file:
             except Exception as e:
                 st.error(f"❌ Unexpected error: {str(e)}")
             finally:
-                if os.path.exists(tmp_path):
+                if tmp_path and os.path.exists(tmp_path):
                     os.remove(tmp_path)
