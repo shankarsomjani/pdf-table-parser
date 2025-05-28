@@ -4,7 +4,7 @@ import pandas as pd
 import io
 import base64
 
-from llm_whisperer import LLMWhispererClient  # Official client
+from llmwhisperer_client import LLMWhispererClient  # Official client
 
 # --- Page setup ---
 st.set_page_config(page_title="PDF Table Extractor", layout="centered")
