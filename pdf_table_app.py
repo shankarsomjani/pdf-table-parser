@@ -26,8 +26,16 @@ from adobe.pdfservices.operation.pdfjobs.params.extract_pdf.extract_renditions_e
 from adobe.pdfservices.operation.pdfjobs.result.extract_pdf_result import ExtractPDFResult
 
 # --- Utility Functions ---
+def sanitize_text(text):
+    try:
+        return text.encode('utf-8').decode('utf-8')
+    except UnicodeDecodeError:
+        # Replace problematic characters with a placeholder or remove them
+        return ''.join([c if ord(c) < 128 else '' for c in text])
+
 def normalize_item(text):
     text = str(text).strip()
+    text = sanitize_text(text)
     return re.sub(r"^\s*[\(\[\-]?\s*[a-zA-Z0-9]+\s*[\)\.\-]?\s*", "", text).strip().lower()
 
 def apply_company_mappings(df, company, mapping_df):
@@ -86,6 +94,8 @@ def merge_adobe_tables(zip_path: str, selected_company=None) -> bytes:
                     df = apply_company_mappings(df, selected_company, mapping_df)
                 ws.append([f"Table {table_count}"])
                 ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=12)
+                # Sanitize data before writing it to Excel
+                df = df.applymap(lambda x: sanitize_text(str(x)))
                 for r in dataframe_to_rows(df, index=False, header=True):
                     ws.append(r)
                 ws.append([])
