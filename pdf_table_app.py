@@ -2,26 +2,22 @@ import streamlit as st
 import pdfplumber
 import pandas as pd
 import io
-import requests
-import base64
-import tempfile
 from unstract.llmwhisperer import LLMWhispererClientV2
 from unstract.llmwhisperer.client_v2 import LLMWhispererClientException
 
-# --- Page setup ---
+# --- Streamlit page setup ---
 st.set_page_config(page_title="PDF Table Extractor", layout="centered")
 st.title("📄 PDF Table Extractor")
 
-# --- Upload ---
+# --- File uploader ---
 uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
 
-# --- Mode selection ---
+# --- Extraction mode ---
 mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via LLMWhisperer)"])
 
-# --- Load API key ---
-LLM_API_KEY = st.secrets.get("LLM_API_KEY")
+# --- API Key ---
+LLM_API_KEY = st.secrets.get("LLM_API_KEY")  # Set this in .streamlit/secrets.toml
 
-# --- Process Uploaded File ---
 if uploaded_file:
     if mode == "Standard (Code-based)":
         with pdfplumber.open(uploaded_file) as pdf:
@@ -47,20 +43,19 @@ if uploaded_file:
         if not LLM_API_KEY:
             st.error("❌ Missing LLMWhisperer API key. Please set it in Streamlit secrets.")
         else:
-            with st.spinner("🔄 Uploading to LLMWhisperer and extracting tables..."):
-                try:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-                        tmp_file.write(uploaded_file.read())
-                        tmp_file_path = tmp_file.name
+            try:
+                client = LLMWhispererClientV2(api_key=LLM_API_KEY, logging_level="DEBUG")
 
-                    client = LLMWhispererClientV2(api_key=LLM_API_KEY, logging_level="DEBUG")
-
-                    result = client.whisper(
-                        file_path=tmp_file_path,
+                with st.spinner("🔄 Uploading to LLMWhisperer and extracting tables..."):
+                    whisper_response = client.whisper(
+                        file_obj=uploaded_file,
+                        filename=uploaded_file.name,
                         mode="form",
                         output_mode="layout_preserving",
-                        filename=uploaded_file.name
                     )
+
+                    result = client.whisper_retrieve(whisper_response.whisper_hash)
+                    st.write("🔍 Raw LLM Response:", result)
 
                     excel_url = result.get("data", {}).get("excel_file_url")
                     if excel_url:
@@ -69,7 +64,7 @@ if uploaded_file:
                     else:
                         st.warning("⚠️ No Excel file returned by LLMWhisperer.")
 
-                except LLMWhispererClientException as e:
-                    st.error(f"❌ LLMWhisperer Client Exception: {str(e)}")
-                except Exception as e:
-                    st.error(f"❌ Unexpected error: {str(e)}")
+            except LLMWhispererClientException as e:
+                st.error(f"❌ LLMWhisperer error: {str(e)}")
+            except Exception as ex:
+                st.error(f"❌ Unexpected error: {str(ex)}")
