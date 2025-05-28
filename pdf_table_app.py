@@ -23,10 +23,9 @@ def clean_escape_sequences(text):
     Clean out any HTML/XML escape sequences like "_x000D_", "_x0009_", etc.
     This is specifically to remove unwanted characters like carriage returns, tabs, etc.
     """
-    # Removing known escape sequences like "_x000D_" (carriage return), "_x0009_" (tab), etc.
-    text = re.sub(r'_x000D_|_x0009_|_x000A_|_x0020_|_x000A', ' ', text)  # Replace escape sequences with spaces
-    text = text.replace('_x000D_', '')  # Specifically remove _x000D_ (carriage return)
-    text = text.replace('_x0009_', '')  # Remove any tabs, just in case
+    # Remove all escape sequences like _x000D_, _x0009_ (tab), _x000A_ (newline)
+    text = re.sub(r'_x000D_|_x0009_|_x000A_|_x0020_', ' ', text)  # Replace escape sequences with space
+    text = text.replace('_x000D_', '')  # Specifically remove _x000D_
     return text
 
 def normalize_item(text):
@@ -38,18 +37,19 @@ def normalize_item(text):
     - Handling escape sequences like "_x000D_"
     """
     text = str(text).strip()
-    
-    # Clean out escape sequences like _x000D_, _x0009_, etc.
-    text = clean_escape_sequences(text)
 
-    # Remove all line breaks, tabs, and multiple spaces between words
+    # Step 1: Clean out escape sequences like _x000D_, _x0009_, etc.
+    text = clean_escape_sequences(text)
+    st.write(f"Cleaned text after removing escape sequences: {text}")
+
+    # Step 2: Remove all line breaks, tabs, and multiple spaces between words
     text = re.sub(r'\s+', ' ', text)  # Replace any whitespace (newlines, tabs, multiple spaces) with a single space
     text = text.replace('\n', ' ').replace('\r', '').replace('\t', ' ')  # Remove line breaks and tabs
-    
-    # Remove any non-printable characters, just in case
+
+    # Step 3: Remove any non-printable characters
     text = ''.join(char for char in text if char.isprintable())
-    
-    # Finally, sanitize the text and normalize it
+
+    # Step 4: Finally, sanitize the text and normalize it
     text = sanitize_text(text)  # Apply sanitization here
     return text.lower()
 
@@ -71,19 +71,18 @@ def apply_company_mappings(df, company, mapping_df):
         normalize_item(row['Original']): row['Mapped']
         for _, row in company_map.iterrows()
     }
-    
+
     # Debugging: Log the replace dictionary to see the cleaned "Original" and mapped values
     st.write("Replace Dictionary:", replace_dict)
 
     # Debugging: Log row 139 (0-indexed as 138) from the Excel file before replacement
-    st.write("Row 139 (index 138) from Excel data before replacement:", df.iloc[138])  # Row 139 corresponds to index 138 in pandas
+    st.write("Raw Row 139 (index 138) from Excel data before replacement:", df.iloc[138])  # Row 139 corresponds to index 138 in pandas
 
-    # Print Row 138, Row 139, and Row 140 to ensure we're on the correct row
-    st.write("Row 138 (index 137) from Excel:", df.iloc[137])  # Just before Row 139
-    st.write("Row 139 (index 138) from Excel:", df.iloc[138])  # Row 139
-    st.write("Row 140 (index 139) from Excel:", df.iloc[139])  # Just after Row 139
+    # Debugging: Check if Row 139 is cleaned properly
+    cleaned_row_139 = normalize_item(df.iloc[138])
+    st.write(f"Cleaned Row 139: {cleaned_row_139}")
 
-    # Iterate through column A and apply the mappings
+    # Apply replacement
     df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: replace_dict.get(normalize_item(x), x))
 
     # Log the first few rows after replacement
