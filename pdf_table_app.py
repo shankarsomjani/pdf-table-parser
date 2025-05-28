@@ -29,13 +29,15 @@ from adobe.pdfservices.operation.pdfjobs.result.extract_pdf_result import Extrac
 def sanitize_text(text):
     """
     This function replaces any problematic characters with a placeholder or removes them.
+    Specifically designed to handle surrogate pairs and non-UTF-8 characters.
     """
     try:
-        # Ensure UTF-8 encoding and decode any problematic characters
-        return text.encode('utf-8', 'ignore').decode('utf-8')
+        # Remove any surrogate pairs or problematic sequences
+        text = text.encode('utf-8', 'ignore').decode('utf-8')
     except UnicodeDecodeError:
-        # For any remaining problematic characters, replace them with a placeholder
-        return ''.join([c if ord(c) < 128 else '' for c in text])
+        # If still problematic, return an empty string or placeholder
+        text = ''.join([c if ord(c) < 128 else '' for c in text])
+    return text
 
 def normalize_item(text):
     """
