@@ -28,8 +28,9 @@ def clean_prefixes(text):
     """
     text = str(text).strip()  # Convert to string and remove leading/trailing spaces
     # Remove leading 'a)', 'b)', '-', etc., and any spaces or dots
-    text = re.sub(r"^[a-zA-Z\)\-\.\s]+", "", text)  # Remove any leading 'a)', 'b)', '-', etc.
-    return text
+    cleaned_text = re.sub(r"^[a-zA-Z\)\-\.\s]+", "", text)  # Remove any leading 'a)', 'b)', '-', etc.
+    
+    return cleaned_text
 
 # --- Function to apply company-specific mappings ---
 def apply_company_mappings(df, company, mapping_df):
@@ -55,8 +56,8 @@ def apply_company_mappings(df, company, mapping_df):
         if original and isinstance(original, str) and mapped:
             replace_dict[original.lower()] = mapped
     
-    # Apply the mapping replacement after cleaning prefixes, ensuring original cleaning logic is intact
-    df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: replace_dict.get(str(x).lower(), x) if pd.notna(x) else x)
+    # Apply the mapping replacement after cleaning prefixes
+    df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: replace_dict.get(clean_prefixes(str(x)).lower(), x) if pd.notna(x) else x)
 
     return df
 
