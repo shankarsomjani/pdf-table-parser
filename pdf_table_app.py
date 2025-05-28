@@ -27,18 +27,28 @@ from adobe.pdfservices.operation.pdfjobs.result.extract_pdf_result import Extrac
 
 # --- Utility Functions ---
 def sanitize_text(text):
+    """
+    This function replaces any problematic characters with a placeholder or removes them.
+    """
     try:
-        return text.encode('utf-8').decode('utf-8')
+        # Ensure UTF-8 encoding and decode any problematic characters
+        return text.encode('utf-8', 'ignore').decode('utf-8')
     except UnicodeDecodeError:
-        # Replace problematic characters with a placeholder or remove them
+        # For any remaining problematic characters, replace them with a placeholder
         return ''.join([c if ord(c) < 128 else '' for c in text])
 
 def normalize_item(text):
+    """
+    Normalize the text by stripping and removing unwanted characters.
+    """
     text = str(text).strip()
-    text = sanitize_text(text)
+    text = sanitize_text(text)  # Apply sanitization here
     return re.sub(r"^\s*[\(\[\-]?\s*[a-zA-Z0-9]+\s*[\)\.\-]?\s*", "", text).strip().lower()
 
 def apply_company_mappings(df, company, mapping_df):
+    """
+    Apply company-specific mappings to the dataframe.
+    """
     if df.empty or df.columns.empty:
         return df
     first_col = df.columns[0]
@@ -94,7 +104,7 @@ def merge_adobe_tables(zip_path: str, selected_company=None) -> bytes:
                     df = apply_company_mappings(df, selected_company, mapping_df)
                 ws.append([f"Table {table_count}"])
                 ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=12)
-                # Sanitize data before writing it to Excel
+                # Apply sanitization to all dataframe cells
                 df = df.applymap(lambda x: sanitize_text(str(x)))
                 for r in dataframe_to_rows(df, index=False, header=True):
                     ws.append(r)
