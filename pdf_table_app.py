@@ -1,10 +1,8 @@
-import os
-import streamlit as st
+import openpyxl
 import pandas as pd
 import io
-import openpyxl
-from openpyxl.utils.dataframe import dataframe_to_rows
 import re
+import streamlit as st
 
 # --- Function to replace _x000D_ and other unwanted characters ---
 def replace_x000d(excel_file):
