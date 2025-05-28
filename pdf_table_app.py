@@ -2,6 +2,8 @@ import streamlit as st
 import pdfplumber
 import pandas as pd
 import io
+import tempfile
+import os
 from unstract.llmwhisperer import LLMWhispererClientV2
 from unstract.llmwhisperer.client_v2 import LLMWhispererClientException
 
@@ -43,13 +45,18 @@ if uploaded_file:
             st.error("❌ Missing LLMWhisperer API key in Streamlit secrets.")
         else:
             try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                    tmp_file.write(uploaded_file.read())
+                    tmp_path = tmp_file.name
+
                 st.info("🔁 Uploading to LLMWhisperer and extracting tables...")
                 client = LLMWhispererClientV2(api_key=LLM_API_KEY)
                 result = client.whisper(
-                    uploaded_file,  # <-- This is the positional argument
+                    tmp_path,  # Pass file path here
                     mode="form",
                     output_mode="layout_preserving"
                 )
+
                 excel_url = result.get("excel_file_url")
                 if excel_url:
                     st.success("✅ LLM extraction complete.")
@@ -60,3 +67,6 @@ if uploaded_file:
                 st.error(f"❌ LLMWhisperer error: {str(e)}")
             except Exception as e:
                 st.error(f"❌ Unexpected error: {str(e)}")
+            finally:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
