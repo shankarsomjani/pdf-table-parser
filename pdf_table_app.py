@@ -37,13 +37,17 @@ def apply_company_mappings(df, company, mapping_df):
     if company_map.empty:
         return df  # If no mappings found for the selected company, return the original dataframe
     
-    replace_dict = {
-        row['Original'].lower(): row['Mapped']
-        for _, row in company_map.iterrows()
-    }
-
-    # Apply the mapping replacement
-    df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: replace_dict.get(x.lower(), x))
+    replace_dict = {}
+    for _, row in company_map.iterrows():
+        original = row['Original']
+        mapped = row['Mapped']
+        
+        # Handle None or NaN values safely
+        if original and isinstance(original, str) and mapped:
+            replace_dict[original.lower()] = mapped
+    
+    # Apply the mapping replacement, ensure we handle None or NaN properly
+    df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: replace_dict.get(str(x).lower(), x) if pd.notna(x) else x)
 
     return df
 
@@ -74,11 +78,15 @@ if uploaded_file:
         columns = next(data)[0:]  # Get the header
         df = pd.DataFrame(data, columns=columns)
 
-        # Step 2: Apply company-specific mappings
+        # Step 2: Handle null values in the Excel dataframe
+        # We ensure that any `None` or `NaN` values are handled properly in the Excel data
+        df = df.fillna('')  # Fill missing values with empty strings for consistent processing
+
+        # Step 3: Apply company-specific mappings
         if selected_company and not mapping_df.empty:
             df = apply_company_mappings(df, selected_company, mapping_df)
 
-        # Step 3: Save the cleaned and mapped workbook into a BytesIO object
+        # Step 4: Save the cleaned and mapped workbook into a BytesIO object
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name=sheet.title)
