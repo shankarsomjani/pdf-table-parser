@@ -20,11 +20,13 @@ def sanitize_text(text):
 
 def normalize_item(text):
     """
-    Normalize the text by stripping and removing unwanted characters.
+    Normalize the text by stripping, cleaning extra spaces, and removing unwanted characters.
     """
+    # Clean leading/trailing spaces and normalize spaces in the middle
     text = str(text).strip()
+    text = ' '.join(text.split())  # Normalize spaces between words
     text = sanitize_text(text)  # Apply sanitization here
-    return re.sub(r"^\s*[\(\[\-]?\s*[a-zA-Z0-9]+\s*[\)\.\-]?\s*", "", text).strip().lower()
+    return text.lower()
 
 def apply_company_mappings(df, company, mapping_df):
     """
