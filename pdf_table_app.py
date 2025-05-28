@@ -27,17 +27,19 @@ from adobe.pdfservices.operation.pdfjobs.result.extract_pdf_result import Extrac
 
 # --- Utility Functions ---
 def normalize_item(text):
-    return re.sub(r"^\s*[\(\[\-]?\s*[a-zA-Z0-9]+\s*[\)\.\-]?\s*", "", str(text)).strip()
+    text = str(text).strip()
+    return re.sub(r"^\s*[\(\[\-]?\s*[a-zA-Z0-9]+\s*[\)\.\-]?\s*", "", text).strip().lower()
 
 def apply_company_mappings(df, company, mapping_df):
-    if 'A' not in df.columns:
+    if df.empty or df.columns.empty:
         return df
+    first_col = df.columns[0]
     company_map = mapping_df[mapping_df['Company'].str.lower() == company.lower()]
     replace_dict = {
         normalize_item(row['Original']): row['Mapped']
         for _, row in company_map.iterrows()
     }
-    df['A'] = df['A'].apply(lambda x: replace_dict.get(normalize_item(x), x))
+    df[first_col] = df[first_col].apply(lambda x: replace_dict.get(normalize_item(x), x))
     return df
 
 # --- Page setup ---
@@ -98,7 +100,7 @@ def merge_adobe_tables(zip_path: str, selected_company=None) -> bytes:
 if uploaded_file:
     if mode == "Adobe PDF Services":
         try:
-            st.info("⏳ Extracting using Adobe PDF Services...")
+            st.info("\u23F3 Extracting using Adobe PDF Services...")
             credentials = ServicePrincipalCredentials(client_id=ADOBE_CLIENT_ID, client_secret=ADOBE_CLIENT_SECRET)
             pdf_services = PDFServices(credentials=credentials)
             input_asset = pdf_services.upload(input_stream=uploaded_file.read(), mime_type=PDFServicesMediaType.PDF)
@@ -122,10 +124,10 @@ if uploaded_file:
                 out_file.write(stream_asset.get_input_stream())
 
             excel_bytes = merge_adobe_tables(zip_path, selected_company)
-            st.success("✅ Adobe PDF Services extraction complete.")
-            st.download_button("📊 Download Formatted Excel", excel_bytes, f"adobe_tables_{timestamp}.xlsx")
+            st.success("\u2705 Adobe PDF Services extraction complete.")
+            st.download_button("\ud83d\udcc8 Download Formatted Excel", excel_bytes, f"adobe_tables_{timestamp}.xlsx")
 
         except (ServiceApiException, ServiceUsageException, SdkException) as e:
-            st.error(f"❌ Adobe API error: {str(e)}")
+            st.error(f"\u274C Adobe API error: {str(e)}")
         except Exception as e:
-            st.error(f"❌ Unexpected error: {str(e)}")
+            st.error(f"\u274C Unexpected error: {str(e)}")
