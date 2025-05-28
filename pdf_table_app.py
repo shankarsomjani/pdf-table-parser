@@ -1,5 +1,6 @@
-import streamlit as st
+import os
 import pandas as pd
+import streamlit as st
 import io
 import re
 
@@ -23,11 +24,17 @@ def normalize_item(text):
     - Replacing multiple spaces with a single space
     - Stripping leading/trailing spaces
     """
-    text = str(text).strip()  # Remove leading and trailing spaces
+    text = str(text).strip()
+    
+    # Remove all line breaks, tabs, and multiple spaces between words
     text = re.sub(r'\s+', ' ', text)  # Replace any whitespace (newlines, tabs, multiple spaces) with a single space
     text = text.replace('\n', ' ').replace('\r', '').replace('\t', ' ')  # Remove line breaks and tabs
-    text = ''.join(char for char in text if char.isprintable())  # Remove non-printable characters
-    text = sanitize_text(text)  # Sanitize the text further
+    
+    # Remove any non-printable characters, just in case
+    text = ''.join(char for char in text if char.isprintable())
+    
+    # Finally, sanitize the text and normalize it
+    text = sanitize_text(text)  # Apply sanitization here
     return text.lower()
 
 def apply_company_mappings(df, company, mapping_df):
