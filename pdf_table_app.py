@@ -23,6 +23,7 @@ def normalize_item(text):
     Normalize the text by:
     - Stripping leading/trailing spaces
     - Removing line breaks, tabs, and normalizing spaces
+    - Removing invisible characters
     """
     text = str(text).strip()
     
@@ -61,7 +62,7 @@ def apply_company_mappings(df, company, mapping_df):
     return df
 
 # --- Page setup ---
-st.set_page_config(page_title="PDF Table Extractor", layout="centered")
+st.set_page_config(page_title="Excel Table Updater", layout="centered")
 st.title("\U0001F4C4 Excel Table Updater")
 
 # --- Load company mapping CSV ---
