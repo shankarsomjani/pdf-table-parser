@@ -4,21 +4,24 @@ import pandas as pd
 import io
 import tempfile
 import os
+
 from unstract.llmwhisperer import LLMWhispererClientV2
 from unstract.llmwhisperer.client_v2 import LLMWhispererClientException
 
-# --- Setup ---
+# --- Page setup ---
 st.set_page_config(page_title="PDF Table Extractor", layout="centered")
 st.title("📄 PDF Table Extractor")
 
-# --- Upload PDF ---
+# --- Upload ---
 uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
+
+# --- Mode selection ---
 mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via LLMWhisperer)"])
 
-# --- API Key ---
+# --- Load API key ---
 LLM_API_KEY = st.secrets.get("LLM_API_KEY")
 
-# --- Process File ---
+# --- Main logic ---
 if uploaded_file:
     if mode == "Standard (Code-based)":
         with pdfplumber.open(uploaded_file) as pdf:
@@ -42,17 +45,19 @@ if uploaded_file:
 
     elif mode == "LLM (via LLMWhisperer)":
         if not LLM_API_KEY:
-            st.error("❌ Missing LLMWhisperer API key in Streamlit secrets.")
+            st.error("❌ Missing LLMWhisperer API key. Please set it in Streamlit secrets.")
         else:
             try:
+                # Save to temporary file
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
                     tmp_file.write(uploaded_file.read())
                     tmp_path = tmp_file.name
 
                 st.info("🔁 Uploading to LLMWhisperer and extracting tables...")
+
                 client = LLMWhispererClientV2(api_key=LLM_API_KEY)
                 result = client.whisper(
-                    tmp_path,  # Pass file path here
+                    tmp_path,
                     mode="form",
                     output_mode="layout_preserving"
                 )
@@ -63,6 +68,7 @@ if uploaded_file:
                     st.markdown(f"[📥 Download Excel File]({excel_url})", unsafe_allow_html=True)
                 else:
                     st.warning("⚠️ No Excel file returned by LLMWhisperer.")
+
             except LLMWhispererClientException as e:
                 st.error(f"❌ LLMWhisperer error: {str(e)}")
             except Exception as e:
