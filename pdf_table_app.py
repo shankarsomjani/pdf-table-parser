@@ -55,8 +55,8 @@ def apply_company_mappings(df, company, mapping_df):
         if original and isinstance(original, str) and mapped:
             replace_dict[original.lower()] = mapped
     
-    # Apply the mapping replacement with cleaned prefixes
-    df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: replace_dict.get(clean_prefixes(str(x)).lower(), x))
+    # Apply the mapping replacement, ensuring the clean prefixes do not interfere
+    df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: replace_dict.get(str(x).lower(), x) if pd.notna(x) else x)
 
     return df
 
