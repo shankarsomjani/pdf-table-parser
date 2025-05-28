@@ -27,9 +27,12 @@ def clean_prefixes(text):
     Remove prefixes like 'a)', 'b)', '-', etc., from the text to match the CSV data.
     """
     text = str(text).strip()  # Convert to string and remove leading/trailing spaces
-    # Remove leading 'a)', 'b)', '-', etc., and any spaces or dots
-    text = re.sub(r"^[a-zA-Z\)\-\.\s]+", "", text)  # Remove any leading 'a)', 'b)', '-', etc.
-    return text
+    cleaned_text = re.sub(r"^[a-zA-Z\)\-\.\s]+", "", text)  # Remove any leading 'a)', 'b)', '-', etc.
+    
+    # Debugging: print cleaned text
+    st.write(f"Original: {text}, Cleaned: {cleaned_text}")
+    
+    return cleaned_text
 
 # --- Function to apply company-specific mappings ---
 def apply_company_mappings(df, company, mapping_df):
