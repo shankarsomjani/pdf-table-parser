@@ -48,21 +48,23 @@ if uploaded_file:
                 with st.spinner("🔄 Sending file to LLMWhisperer..."):
                     whisperer = LLMWhispererClientV2(api_key=LLM_API_KEY, logging_level="DEBUG")
 
-                    # Save to a temp file and reopen as binary file
-                    with open("/tmp/uploaded.pdf", "wb") as f:
-                        f.write(uploaded_file.read())
-                    with open("/tmp/uploaded.pdf", "rb") as pdf_file:
+                    # Save uploaded file to temp path for reading as binary
+                    with open("/tmp/uploaded_llm.pdf", "wb") as tmp_file:
+                        tmp_file.write(uploaded_file.read())
+
+                    with open("/tmp/uploaded_llm.pdf", "rb") as f:
                         result = whisperer.whisper(
-                            file_obj=pdf_file,
+                            file_obj=f,
+                            filename=uploaded_file.name,
                             mode="form",
-                            output_mode="layout_preserving",
-                            filename=uploaded_file.name
+                            output_mode="layout_preserving"
                         )
 
-                    st.success("✅ LLMWhisperer job submitted")
+                    st.success("✅ LLMWhisperer job submitted.")
+                    st.subheader("LLMWhisperer Output:")
                     st.json(result)
 
             except LLMWhispererClientException as e:
-                st.error(f"❌ LLMWhisperer error: {str(e)}")
+                st.error(f"❌ LLMWhisperer API error: {str(e)}")
             except Exception as e:
                 st.error(f"❌ Unexpected error: {str(e)}")
