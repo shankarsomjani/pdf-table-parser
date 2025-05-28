@@ -25,7 +25,7 @@ def clean_escape_sequences(text):
     """
     # Remove all escape sequences like _x000D_, _x0009_ (tab), _x000A_ (newline)
     text = re.sub(r'_x000D_|_x0009_|_x000A_|_x0020_', ' ', text)  # Replace escape sequences with space
-    text = text.replace('_x000D_', '')  # Specifically remove _x000D_
+    text = text.replace('_x000D_', '')  # Specifically remove _x000D_ (carriage return)
     return text
 
 def normalize_item(text):
@@ -40,16 +40,15 @@ def normalize_item(text):
 
     # Step 1: Clean out escape sequences like _x000D_, _x0009_, etc.
     text = clean_escape_sequences(text)
-    st.write(f"Cleaned text after removing escape sequences: {text}")
 
-    # Step 2: Remove all line breaks, tabs, and multiple spaces between words
+    # Step 2: Remove any remaining line breaks, tabs, and multiple spaces between words
     text = re.sub(r'\s+', ' ', text)  # Replace any whitespace (newlines, tabs, multiple spaces) with a single space
     text = text.replace('\n', ' ').replace('\r', '').replace('\t', ' ')  # Remove line breaks and tabs
-
+    
     # Step 3: Remove any non-printable characters
     text = ''.join(char for char in text if char.isprintable())
-
-    # Step 4: Finally, sanitize the text and normalize it
+    
+    # Final sanitization
     text = sanitize_text(text)  # Apply sanitization here
     return text.lower()
 
@@ -76,13 +75,14 @@ def apply_company_mappings(df, company, mapping_df):
     st.write("Replace Dictionary:", replace_dict)
 
     # Debugging: Log row 139 (0-indexed as 138) from the Excel file before replacement
-    st.write("Raw Row 139 (index 138) from Excel data before replacement:", df.iloc[138])  # Row 139 corresponds to index 138 in pandas
+    st.write("Row 139 (index 138) from Excel data before replacement:", df.iloc[138])  # Row 139 corresponds to index 138 in pandas
 
-    # Debugging: Check if Row 139 is cleaned properly
-    cleaned_row_139 = normalize_item(df.iloc[138])
-    st.write(f"Cleaned Row 139: {cleaned_row_139}")
+    # Print Row 138, Row 139, and Row 140 to ensure we're on the correct row
+    st.write("Row 138 (index 137) from Excel:", df.iloc[137])  # Just before Row 139
+    st.write("Row 139 (index 138) from Excel:", df.iloc[138])  # Row 139
+    st.write("Row 140 (index 139) from Excel:", df.iloc[139])  # Just after Row 139
 
-    # Apply replacement
+    # Step: Clean and replace values in column A
     df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: replace_dict.get(normalize_item(x), x))
 
     # Log the first few rows after replacement
