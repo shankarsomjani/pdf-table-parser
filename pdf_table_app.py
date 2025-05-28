@@ -53,7 +53,7 @@ if uploaded_file:
                     tmp_file.write(uploaded_file.read())
                     tmp_path = tmp_file.name
 
-                st.info("🔁 Uploading to LLMWhisperer and extracting tables...")
+                st.info("🔁 Uploading to LLMWhisperer and extracting content...")
 
                 client = LLMWhispererClientV2(api_key=LLM_API_KEY)
                 result = client.whisper(
@@ -62,12 +62,9 @@ if uploaded_file:
                     output_mode="layout_preserving"
                 )
 
-                excel_url = result.get("excel_file_url")
-                if excel_url:
-                    st.success("✅ LLM extraction complete.")
-                    st.markdown(f"[📥 Download Excel File]({excel_url})", unsafe_allow_html=True)
-                else:
-                    st.warning("⚠️ No Excel file returned by LLMWhisperer.")
+                st.success("✅ LLM extraction complete.")
+                st.subheader("📄 Extracted Content")
+                st.json(result)
 
             except LLMWhispererClientException as e:
                 st.error(f"❌ LLMWhisperer error: {str(e)}")
