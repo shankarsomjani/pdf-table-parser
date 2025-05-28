@@ -1,3 +1,5 @@
 ﻿Company,Original,Mapped
 TCS,"Profit Before Taxes, Other Income & Exceptional Items",PBT
 Infosys,"Profit Before Taxes, Other Income & Exceptional Items",Profit Before Tax
+TCS,Cost of equipment and software licences,Equipment Cost
+Infosys,Cost of equipment and software licences,Machinery Cost
