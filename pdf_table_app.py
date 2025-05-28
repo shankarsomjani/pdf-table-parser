@@ -2,7 +2,8 @@ import streamlit as st
 import pdfplumber
 import pandas as pd
 import io
-import tempfile
+import os
+import time
 from unstract.llmwhisperer import LLMWhispererClientV2
 from unstract.llmwhisperer.client_v2 import LLMWhispererClientException
 
@@ -37,7 +38,7 @@ if uploaded_file:
                 for name, df in all_tables:
                     df.to_excel(writer, sheet_name=name[:31], index=False)
             st.success(f"✅ Extracted {len(all_tables)} table(s)")
-            st.download_button("📥 Download Excel File", output.getvalue(), "tables.xlsx")
+            st.download_button("📅 Download Excel File", output.getvalue(), "tables.xlsx")
         else:
             st.warning("⚠️ No tables found using standard method.")
 
@@ -46,49 +47,48 @@ if uploaded_file:
             st.error("❌ Missing LLMWhisperer API key. Please set it in Streamlit secrets.")
         else:
             try:
-                whisperer = LLMWhispererClientV2(api_key=LLM_API_KEY)
+                with st.spinner("🔄 Sending file to LLMWhisperer..."):
+                    whisperer = LLMWhispererClientV2(api_key=LLM_API_KEY, logging_level="DEBUG")
 
-                # Save uploaded file temporarily
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-                    tmp_file.write(uploaded_file.read())
-                    temp_file_path = tmp_file.name
+                    temp_path = "/tmp/uploaded_llm.pdf"
+                    with open(temp_path, "wb") as f:
+                        f.write(uploaded_file.read())
 
-                with st.spinner("📤 Uploading to LLMWhisperer..."):
-                    job = whisperer.whisper(
-                        file_path=temp_file_path,
+                    job_info = whisperer.whisper(
+                        file_path=temp_path,
+                        filename=uploaded_file.name,
                         mode="form",
                         output_mode="layout_preserving"
                     )
 
-                with st.spinner("⏳ Waiting for LLMWhisperer to finish processing..."):
-                    result = whisperer.wait_for_completion(job)
+                    whisper_hash = job_info.get("whisper_hash")
+                    if not whisper_hash:
+                        st.error("❌ Failed to initiate LLMWhisperer job.")
+                        st.stop()
 
-                if result.status_code == 200 and result.extraction:
-                    tables = []
-                    for block in result.extraction.get("tables", []):
-                        try:
-                            data = block.get("data")
-                            if isinstance(data, list) and all(isinstance(row, list) for row in data):
-                                df = pd.DataFrame(data[1:], columns=data[0]) if len(data) > 1 else pd.DataFrame(data)
-                                tables.append(df)
-                                st.dataframe(df)
-                            else:
-                                st.warning(f"⚠️ Skipped a table with invalid structure.")
-                        except Exception as e:
-                            st.warning(f"⚠️ Failed to render a table: {e}")
+                    # Polling until status is processed
+                    st.info("⏳ Waiting for LLMWhisperer to process the file...")
+                    status = None
+                    for _ in range(20):  # Max ~40 seconds
+                        status_info = whisperer.whisper_status(whisper_hash=whisper_hash)
+                        status = status_info.get("status")
+                        if status == "processed":
+                            break
+                        elif status == "error":
+                            st.error("❌ LLMWhisperer reported an error while processing the document.")
+                            st.stop()
+                        time.sleep(2)
 
-                    if tables:
-                        output = io.BytesIO()
-                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                            for idx, df in enumerate(tables):
-                                df.to_excel(writer, sheet_name=f"Table{idx+1}", index=False)
-                        st.download_button("📥 Download Excel File", output.getvalue(), "llm_tables.xlsx")
-                    else:
-                        st.warning("⚠️ No structured tables found in LLMWhisperer response.")
-                else:
-                    st.warning("⚠️ No extraction results returned by LLMWhisperer.")
+                    if status != "processed":
+                        st.warning("⚠️ Timed out waiting for LLMWhisperer to finish processing.")
+                        st.stop()
+
+                    result = whisperer.whisper_retrieve(whisper_hash=whisper_hash)
+                    st.success("✅ LLMWhisperer processing complete.")
+                    st.subheader("LLMWhisperer Extracted Output:")
+                    st.json(result)
 
             except LLMWhispererClientException as e:
-                st.error(f"❌ LLMWhisperer error: {str(e)}")
+                st.error(f"❌ LLMWhisperer API error: {str(e)}")
             except Exception as e:
                 st.error(f"❌ Unexpected error: {str(e)}")
