@@ -18,15 +18,27 @@ def sanitize_text(text):
         text = ''.join([c if ord(c) < 128 else '' for c in text])
     return text
 
+def clean_escape_sequences(text):
+    """
+    Clean out any HTML/XML escape sequences like "_x000D_", "_x0009_", etc.
+    This is specifically to remove unwanted characters like carriage returns, tabs, etc.
+    """
+    text = re.sub(r'_x000D_|_x0009_|_x000A_|_x0020_|_x000A', ' ', text)  # Replace known escape sequences with spaces
+    return text
+
 def normalize_item(text):
     """
     Normalize the text by:
     - Stripping leading/trailing spaces
-    - Removing line breaks, tabs, and extra spaces
+    - Cleaning up line breaks, tabs, extra spaces
     - Removing invisible characters
+    - Handling escape sequences like "_x000D_"
     """
     text = str(text).strip()
     
+    # Clean out escape sequences like _x000D_, _x0009_, etc.
+    text = clean_escape_sequences(text)
+
     # Remove all line breaks, tabs, and multiple spaces between words
     text = re.sub(r'\s+', ' ', text)  # Replace any whitespace (newlines, tabs, multiple spaces) with a single space
     text = text.replace('\n', ' ').replace('\r', '').replace('\t', ' ')  # Remove line breaks and tabs
