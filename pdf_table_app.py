@@ -44,43 +44,35 @@ ADOBE_CLIENT_SECRET = os.getenv("PDF_SERVICES_CLIENT_SECRET")
 
 # --- Adobe Table Formatter ---
 def merge_adobe_tables(zip_path: str) -> bytes:
-    from openpyxl import load_workbook
-    import tempfile
+    output = io.BytesIO()
+    writer = pd.ExcelWriter(output, engine='openpyxl')
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Combined Tables"
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(temp_dir)
+    table_count = 1
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        file_names = sorted([f for f in zip_ref.namelist() if f.endswith(".xlsx")])
+        for file in file_names:
+            with zip_ref.open(file) as f:
+                df = pd.read_excel(f)
+                if df.empty:
+                    continue
+                # Add section title
+                ws.append([f"Table {table_count}"])
+                ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=12)
+                # Write the table
+                for r in dataframe_to_rows(df, index=False, header=True):
+                    ws.append(r)
+                # Add 2 blank rows
+                ws.append([])
+                ws.append([])
+                table_count += 1
 
-        output = io.BytesIO()
-        from openpyxl import Workbook
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Combined Tables"
-
-        table_count = 1
-        for file_name in sorted(os.listdir(temp_dir)):
-            if not file_name.endswith(".xlsx"):
-                continue
-            file_path = os.path.join(temp_dir, file_name)
-            table_wb = load_workbook(file_path)
-            sheet = table_wb.active
-
-            # Write section header
-            ws.append([f"Table {table_count}"])
-            ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=12)
-
-            # Copy data with formatting
-            for row in sheet.iter_rows():
-                ws.append([cell.value for cell in row])
-
-            # Add spacing
-            ws.append([])
-            ws.append([])
-            table_count += 1
-
-        wb.save(output)
-        output.seek(0)
-        return output.getvalue()
+    wb.save(output)
+    output.seek(0)
+    return output.getvalue()
 
 
 # --- Process Uploaded File ---
