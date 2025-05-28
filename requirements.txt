@@ -3,4 +3,4 @@ pdfplumber
 pandas
 openpyxl
 requests
-llm-whisperer
+llmwhisperer-client
