@@ -30,7 +30,7 @@ def normalize_item(text):
     """
     Normalize the text by:
     - Stripping leading/trailing spaces
-    - Cleaning up line breaks, tabs, extra spaces
+    - Removing line breaks, tabs, and extra spaces
     - Removing invisible characters
     - Handling escape sequences like "_x000D_"
     """
@@ -72,8 +72,8 @@ def apply_company_mappings(df, company, mapping_df):
     # Debugging: Log the replace dictionary to see the cleaned "Original" and mapped values
     st.write("Replace Dictionary:", replace_dict)
 
-    # Log the first few rows of the Excel data before replacement
-    st.write("First few rows of Excel data before replacement:", df.head())
+    # Debugging: Log row 139 from the Excel file before replacement
+    st.write("Row 139 from Excel data before replacement:", df.iloc[138])  # Remember, DataFrame is 0-indexed
 
     # Iterate through column A and apply the mappings
     df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: replace_dict.get(normalize_item(x), x))
