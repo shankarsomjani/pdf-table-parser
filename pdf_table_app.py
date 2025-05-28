@@ -2,7 +2,6 @@ import streamlit as st
 import pdfplumber
 import pandas as pd
 import io
-
 from unstract.llmwhisperer import LLMWhispererClientV2
 from unstract.llmwhisperer.client_v2 import LLMWhispererClientException
 
@@ -17,7 +16,7 @@ uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
 mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via LLMWhisperer)"])
 
 # --- Load API key ---
-LLM_API_KEY = st.secrets.get("LLM_API_KEY")
+LLM_API_KEY = st.secrets.get("LLM_API_KEY")  # Ensure this is set in your Streamlit secrets
 
 # --- Process Uploaded File ---
 if uploaded_file:
@@ -47,21 +46,27 @@ if uploaded_file:
         else:
             with st.spinner("🔄 Uploading to LLMWhisperer and extracting tables..."):
                 try:
+                    # Initialize the LLMWhisperer client
                     client = LLMWhispererClientV2(api_key=LLM_API_KEY)
-                    result = client.extract_document(
-                        file=uploaded_file,
-                        file_name=uploaded_file.name,
-                        output_format="excel"
+
+                    # Process the uploaded file
+                    result = client.whisper(
+                        stream=uploaded_file,
+                        filename=uploaded_file.name,
+                        output_mode="layout_preserving",
+                        wait_for_completion=True,
+                        wait_timeout=180
                     )
 
-                    if result and result.excel_file_url:
+                    # Check if the result contains the Excel file URL
+                    excel_url = result.get("excel_file_url")
+                    if excel_url:
                         st.success("✅ LLM extraction complete.")
-                        st.markdown(f"[📥 Download Excel File]({result.excel_file_url})", unsafe_allow_html=True)
+                        st.markdown(f"[📥 Download Excel File]({excel_url})", unsafe_allow_html=True)
                     else:
-                        st.warning("⚠️ No Excel URL returned by LLMWhisperer.")
+                        st.warning("⚠️ No Excel file returned by LLMWhisperer.")
 
                 except LLMWhispererClientException as e:
                     st.error(f"❌ LLMWhisperer error: {str(e)}")
-
                 except Exception as e:
                     st.error(f"❌ Unexpected error: {str(e)}")
