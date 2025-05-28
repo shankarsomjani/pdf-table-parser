@@ -4,9 +4,15 @@ import pandas as pd
 import io
 import os
 import time
+import zipfile
+from datetime import datetime
+from openpyxl import load_workbook
+from openpyxl.styles import Font
+from openpyxl.utils.dataframe import dataframe_to_rows
+
 from unstract.llmwhisperer import LLMWhispererClientV2
 from unstract.llmwhisperer.client_v2 import LLMWhispererClientException
-from datetime import datetime
+
 from adobe.pdfservices.operation.auth.service_principal_credentials import ServicePrincipalCredentials
 from adobe.pdfservices.operation.exception.exceptions import ServiceApiException, ServiceUsageException, SdkException
 from adobe.pdfservices.operation.io.stream_asset import StreamAsset
@@ -17,7 +23,6 @@ from adobe.pdfservices.operation.pdfjobs.params.extract_pdf.extract_element_type
 from adobe.pdfservices.operation.pdfjobs.params.extract_pdf.extract_pdf_params import ExtractPDFParams
 from adobe.pdfservices.operation.pdfjobs.params.extract_pdf.extract_renditions_element_type import ExtractRenditionsElementType
 from adobe.pdfservices.operation.pdfjobs.result.extract_pdf_result import ExtractPDFResult
-import zipfile
 
 # --- Page setup ---
 st.set_page_config(page_title="PDF Table Extractor", layout="centered")
@@ -35,6 +40,40 @@ LLM_API_KEY = st.secrets.get("LLM_API_KEY")
 # --- Adobe credentials ---
 ADOBE_CLIENT_ID = os.getenv("PDF_SERVICES_CLIENT_ID")
 ADOBE_CLIENT_SECRET = os.getenv("PDF_SERVICES_CLIENT_SECRET")
+
+
+# --- Adobe Table Formatter ---
+def merge_adobe_tables(zip_path: str) -> bytes:
+    output = io.BytesIO()
+    writer = pd.ExcelWriter(output, engine='openpyxl')
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Combined Tables"
+
+    table_count = 1
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        file_names = sorted([f for f in zip_ref.namelist() if f.endswith(".xlsx")])
+        for file in file_names:
+            with zip_ref.open(file) as f:
+                df = pd.read_excel(f)
+                if df.empty:
+                    continue
+                # Add section title
+                ws.append([f"Table {table_count}"])
+                ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=12)
+                # Write the table
+                for r in dataframe_to_rows(df, index=False, header=True):
+                    ws.append(r)
+                # Add 2 blank rows
+                ws.append([])
+                ws.append([])
+                table_count += 1
+
+    wb.save(output)
+    output.seek(0)
+    return output.getvalue()
+
 
 # --- Process Uploaded File ---
 if uploaded_file:
@@ -126,29 +165,15 @@ if uploaded_file:
 
             result_asset = pdf_services_response.get_result().get_resource()
             stream_asset: StreamAsset = pdf_services.get_content(result_asset)
-            zip_bytes = stream_asset.get_input_stream()
 
-            with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zip_file:
-                all_tables = []
-                for file_name in zip_file.namelist():
-                    if file_name.endswith(".xlsx"):
-                        with zip_file.open(file_name) as excel_file:
-                            excel_bytes = excel_file.read()
-                            xls = pd.read_excel(io.BytesIO(excel_bytes), sheet_name=None)
-                            for sheet_df in xls.values():
-                                all_tables.append(sheet_df)
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            zip_path = f"/tmp/output_adobe_{timestamp}.zip"
+            with open(zip_path, "wb") as out_file:
+                out_file.write(stream_asset.get_input_stream())
 
-                if all_tables:
-                    final_df = pd.concat(all_tables, ignore_index=True)
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        final_df.to_excel(writer, sheet_name="All Tables", index=False)
-
-                    st.success(f"✅ Extracted and combined {len(all_tables)} tables into one sheet.")
-                    st.download_button("📅 Download Combined Excel", output.getvalue(), "combined_tables.xlsx")
-
-                else:
-                    st.warning("⚠️ No Excel tables found in the Adobe output.")
+            excel_bytes = merge_adobe_tables(zip_path)
+            st.success("✅ Adobe PDF Services extraction complete.")
+            st.download_button("📊 Download Formatted Excel", excel_bytes, f"adobe_tables_{timestamp}.xlsx")
 
         except (ServiceApiException, ServiceUsageException, SdkException) as e:
             st.error(f"❌ Adobe API error: {str(e)}")
