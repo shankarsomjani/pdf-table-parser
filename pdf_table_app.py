@@ -125,7 +125,12 @@ if uploaded_file:
 
             excel_bytes = merge_adobe_tables(zip_path, selected_company)
             st.success("\u2705 Adobe PDF Services extraction complete.")
-            st.download_button("\ud83d\udcc8 Download Formatted Excel", excel_bytes, f"adobe_tables_{timestamp}.xlsx")
+        st.download_button(
+    label="📊 Download Formatted Excel",
+    data=excel_bytes,
+    file_name=f"adobe_tables_{timestamp}.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
 
         except (ServiceApiException, ServiceUsageException, SdkException) as e:
             st.error(f"\u274C Adobe API error: {str(e)}")
