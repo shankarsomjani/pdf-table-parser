@@ -23,9 +23,10 @@ def clean_escape_sequences(text):
     Clean out any HTML/XML escape sequences like "_x000D_", "_x0009_", etc.
     This is specifically to remove unwanted characters like carriage returns, tabs, etc.
     """
-    # Remove known escape sequences like "_x000D_" (carriage return), "_x0009_" (tab), etc.
+    # Removing known escape sequences like "_x000D_" (carriage return), "_x0009_" (tab), etc.
     text = re.sub(r'_x000D_|_x0009_|_x000A_|_x0020_|_x000A', ' ', text)  # Replace escape sequences with spaces
     text = text.replace('_x000D_', '')  # Specifically remove _x000D_ (carriage return)
+    text = text.replace('_x0009_', '')  # Remove any tabs, just in case
     return text
 
 def normalize_item(text):
@@ -82,7 +83,7 @@ def apply_company_mappings(df, company, mapping_df):
     st.write("Row 139 (index 138) from Excel:", df.iloc[138])  # Row 139
     st.write("Row 140 (index 139) from Excel:", df.iloc[139])  # Just after Row 139
 
-    # Apply replacement
+    # Iterate through column A and apply the mappings
     df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: replace_dict.get(normalize_item(x), x))
 
     # Log the first few rows after replacement
