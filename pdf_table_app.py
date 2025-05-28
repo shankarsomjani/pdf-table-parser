@@ -1,14 +1,12 @@
 import streamlit as st
 import pandas as pd
 import io
-import os
 import re
 
 # --- Utility Functions ---
 def sanitize_text(text):
     """
-    This function replaces any problematic characters with a placeholder or removes them.
-    Specifically designed to handle surrogate pairs and non-UTF-8 characters.
+    Sanitize the text by removing non-UTF-8 characters, including problematic characters.
     """
     try:
         # Remove any surrogate pairs or problematic sequences
@@ -21,22 +19,15 @@ def sanitize_text(text):
 def normalize_item(text):
     """
     Normalize the text by:
+    - Removing line breaks, tabs
+    - Replacing multiple spaces with a single space
     - Stripping leading/trailing spaces
-    - Cleaning up line breaks, tabs, and extra spaces
-    - Removing invisible characters
     """
-    # Ensure the text is a string and strip extra spaces
-    text = str(text).strip()
-    
-    # Remove all line breaks, tabs, and multiple spaces between words
+    text = str(text).strip()  # Remove leading and trailing spaces
     text = re.sub(r'\s+', ' ', text)  # Replace any whitespace (newlines, tabs, multiple spaces) with a single space
     text = text.replace('\n', ' ').replace('\r', '').replace('\t', ' ')  # Remove line breaks and tabs
-    
-    # Remove any non-printable characters, just in case
-    text = ''.join(char for char in text if char.isprintable())
-    
-    # Finally, sanitize the text and normalize it
-    text = sanitize_text(text)  # Apply sanitization here
+    text = ''.join(char for char in text if char.isprintable())  # Remove non-printable characters
+    text = sanitize_text(text)  # Sanitize the text further
     return text.lower()
 
 def apply_company_mappings(df, company, mapping_df):
