@@ -2,7 +2,6 @@ import streamlit as st
 import pdfplumber
 import pandas as pd
 import io
-import time
 from unstract.llmwhisperer import LLMWhispererClientV2
 from unstract.llmwhisperer.client_v2 import LLMWhispererClientException
 
@@ -19,6 +18,7 @@ mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via L
 # --- Load API key ---
 LLM_API_KEY = st.secrets.get("LLM_API_KEY")
 
+# --- Process Uploaded File ---
 if uploaded_file:
     if mode == "Standard (Code-based)":
         with pdfplumber.open(uploaded_file) as pdf:
@@ -45,36 +45,24 @@ if uploaded_file:
             st.error("❌ Missing LLMWhisperer API key. Please set it in Streamlit secrets.")
         else:
             try:
-                st.spinner("🔄 Uploading to LLMWhisperer and extracting...")
-                client = LLMWhispererClientV2(api_key=LLM_API_KEY)
-                response = client.whisper(
-                    file=uploaded_file,
-                    mode="form",
-                    output_mode="layout_preserving",
-                    filename=uploaded_file.name
-                )
-                whisper_hash = response.get("whisper_hash")
-                if not whisper_hash:
-                    st.error("❌ No whisper_hash returned by API.")
-                else:
-                    st.info("⏳ Waiting for processing to complete...")
-                    for _ in range(10):
-                        time.sleep(5)
-                        status = client.whisper_status(whisper_hash=whisper_hash)
-                        if status.get("status") == "processed":
-                            break
-                    else:
-                        st.warning("⚠️ Processing timed out. Try again later.")
-                        st.stop()
+                with st.spinner("🔄 Sending file to LLMWhisperer..."):
+                    whisperer = LLMWhispererClientV2(api_key=LLM_API_KEY, logging_level="DEBUG")
 
-                    result = client.whisper_retrieve(whisper_hash=whisper_hash)
-                    if result:
-                        st.success("✅ LLM extraction complete.")
-                        st.json(result)
-                    else:
-                        st.warning("⚠️ No result returned by LLMWhisperer.")
+                    # Save to a temp file and reopen as binary file
+                    with open("/tmp/uploaded.pdf", "wb") as f:
+                        f.write(uploaded_file.read())
+                    with open("/tmp/uploaded.pdf", "rb") as pdf_file:
+                        result = whisperer.whisper(
+                            file_obj=pdf_file,
+                            mode="form",
+                            output_mode="layout_preserving",
+                            filename=uploaded_file.name
+                        )
+
+                    st.success("✅ LLMWhisperer job submitted")
+                    st.json(result)
 
             except LLMWhispererClientException as e:
-                st.error(f"❌ API error: {str(e)}")
-            except Exception as ex:
-                st.error(f"❌ Unexpected error: {str(ex)}")
+                st.error(f"❌ LLMWhisperer error: {str(e)}")
+            except Exception as e:
+                st.error(f"❌ Unexpected error: {str(e)}")
