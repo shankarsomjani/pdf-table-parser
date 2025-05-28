@@ -2,6 +2,7 @@ import streamlit as st
 import pdfplumber
 import pandas as pd
 import io
+import tempfile
 from unstract.llmwhisperer import LLMWhispererClientV2
 from unstract.llmwhisperer.client_v2 import LLMWhispererClientException
 
@@ -46,12 +47,17 @@ if uploaded_file:
         else:
             try:
                 whisperer = LLMWhispererClientV2(api_key=LLM_API_KEY)
+
+                # Save uploaded file temporarily
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                    tmp_file.write(uploaded_file.read())
+                    temp_file_path = tmp_file.name
+
                 with st.spinner("📤 Uploading to LLMWhisperer..."):
                     job = whisperer.whisper(
-                        file_path=uploaded_file.name,
+                        file_path=temp_file_path,
                         mode="form",
-                        output_mode="layout_preserving",
-                        file_stream=uploaded_file
+                        output_mode="layout_preserving"
                     )
 
                 with st.spinner("⏳ Waiting for LLMWhisperer to finish processing..."):
@@ -67,7 +73,7 @@ if uploaded_file:
                                 tables.append(df)
                                 st.dataframe(df)
                             else:
-                                st.warning(f"⚠️ Skipped a table with invalid structure: {data}")
+                                st.warning(f"⚠️ Skipped a table with invalid structure.")
                         except Exception as e:
                             st.warning(f"⚠️ Failed to render a table: {e}")
 
