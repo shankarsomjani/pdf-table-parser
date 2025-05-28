@@ -15,43 +15,47 @@ uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
 # --- Mode selection ---
 mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via LLMWhisperer)"])
 
-# --- Load API key from secrets ---
-LLM_API_KEY = st.secrets.get("LLM_API_KEY")
+# --- Load API key ---
+LLM_API_KEY = st.secrets.get("LLM_API_KEY")  # Should be set in Streamlit secrets
 
-# --- Standard extraction using pdfplumber ---
-def extract_with_pdfplumber(file):
-    with pdfplumber.open(file) as pdf:
-        all_tables = []
-        for page_num, page in enumerate(pdf.pages, start=1):
-            tables = page.extract_tables()
-            for idx, table in enumerate(tables):
-                if table:
-                    df = pd.DataFrame(table[1:], columns=table[0]) if len(table) > 1 else pd.DataFrame(table)
-                    all_tables.append((f"Page{page_num}_Table{idx+1}", df))
-    return all_tables
-
-# --- LLMWhisperer extraction ---
-def extract_with_llmwhisperer(file_bytes, filename, api_key):
+# --- Function to extract tables using LLMWhisperer ---
+def extract_with_llmwhisperer(file_bytes, filename):
     try:
-        client = LLMWhispererClientV2(api_key=api_key)
+        client = LLMWhispererClientV2(api_key=LLM_API_KEY)
         response = client.process_document(
             file_name=filename,
             file_bytes=file_bytes,
             output_format="excel",
-            mode="form"  # Options: native_text, low_cost, high_quality, form
+            mode="form",
+            output_mode="layout_preserving"
         )
-        return response.get("data", {}).get("excel_file_url")
+
+        # Display raw response for debugging (optional)
+        st.subheader("LLMWhisperer Raw Response")
+        st.json(response)
+
+        # Try to extract Excel URL
+        excel_url = response.get("excel_url") or response.get("data", {}).get("excel_url")
+        return excel_url
+
     except LLMWhispererClientException as e:
-        st.error(f"❌ LLMWhisperer error: {e}")
-        return None
+        st.error(f"❌ LLMWhisperer client error: {e}")
     except Exception as e:
         st.error(f"❌ Unexpected error: {e}")
-        return None
+    return None
 
-# --- Main execution block ---
+# --- Main Logic ---
 if uploaded_file:
     if mode == "Standard (Code-based)":
-        all_tables = extract_with_pdfplumber(uploaded_file)
+        with pdfplumber.open(uploaded_file) as pdf:
+            all_tables = []
+            for page_num, page in enumerate(pdf.pages, start=1):
+                tables = page.extract_tables()
+                for idx, table in enumerate(tables):
+                    if table:
+                        df = pd.DataFrame(table[1:], columns=table[0]) if len(table) > 1 else pd.DataFrame(table)
+                        all_tables.append((f"Page{page_num}_Table{idx+1}", df))
+
         if all_tables:
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -64,11 +68,12 @@ if uploaded_file:
 
     elif mode == "LLM (via LLMWhisperer)":
         if not LLM_API_KEY:
-            st.error("❌ Missing LLMWhisperer API key. Set it in Streamlit secrets.")
+            st.error("❌ Missing LLMWhisperer API key. Please set it in Streamlit secrets.")
         else:
-            with st.spinner("🔄 Uploading to LLMWhisperer..."):
+            with st.spinner("🔄 Uploading to LLMWhisperer and extracting tables..."):
                 file_bytes = uploaded_file.read()
-                excel_url = extract_with_llmwhisperer(file_bytes, uploaded_file.name, LLM_API_KEY)
+                excel_url = extract_with_llmwhisperer(file_bytes, uploaded_file.name)
+
                 if excel_url:
                     st.success("✅ LLM extraction complete.")
                     st.markdown(f"[📥 Download Excel File]({excel_url})", unsafe_allow_html=True)
