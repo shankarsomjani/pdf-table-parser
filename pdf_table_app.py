@@ -27,7 +27,7 @@ st.title("\U0001F4C4 PDF Table Extractor")
 uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
 
 # --- Mode selection ---
-mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via LLMWhisperer)", "Adobe PDF Services"])  # new option
+mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via LLMWhisperer)", "Adobe PDF Services"])
 
 # --- Load API key ---
 LLM_API_KEY = st.secrets.get("LLM_API_KEY")
@@ -126,16 +126,29 @@ if uploaded_file:
 
             result_asset = pdf_services_response.get_result().get_resource()
             stream_asset: StreamAsset = pdf_services.get_content(result_asset)
+            zip_bytes = stream_asset.get_input_stream()
 
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            output_zip = f"output_adobe_{timestamp}.zip"
-            with open(output_zip, "wb") as out_file:
-                out_file.write(stream_asset.get_input_stream())
+            with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zip_file:
+                all_tables = []
+                for file_name in zip_file.namelist():
+                    if file_name.endswith(".xlsx"):
+                        with zip_file.open(file_name) as excel_file:
+                            excel_bytes = excel_file.read()
+                            xls = pd.read_excel(io.BytesIO(excel_bytes), sheet_name=None)
+                            for sheet_df in xls.values():
+                                all_tables.append(sheet_df)
 
-            with open(output_zip, "rb") as f:
-                st.download_button("📦 Download Adobe Extracted ZIP", f.read(), output_zip)
+                if all_tables:
+                    final_df = pd.concat(all_tables, ignore_index=True)
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        final_df.to_excel(writer, sheet_name="All Tables", index=False)
 
-            st.success("✅ Adobe PDF Services extraction complete.")
+                    st.success(f"✅ Extracted and combined {len(all_tables)} tables into one sheet.")
+                    st.download_button("📅 Download Combined Excel", output.getvalue(), "combined_tables.xlsx")
+
+                else:
+                    st.warning("⚠️ No Excel tables found in the Adobe output.")
 
         except (ServiceApiException, ServiceUsageException, SdkException) as e:
             st.error(f"❌ Adobe API error: {str(e)}")
