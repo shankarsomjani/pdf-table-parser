@@ -37,8 +37,13 @@ def replace_x000d(excel_file):
 
 # --- Function to clean prefixes like "a)", "b)" and similar ---
 def clean_prefixes(text):
+    """
+    Remove unwanted prefixes like 'a)', 'b)', '-', etc., from the text.
+    Only removes the prefix at the start of the string and preserves the rest.
+    """
     text = str(text).strip()  # Convert to string and remove leading/trailing spaces
-    text = re.sub(r"^[a-zA-Z\)\-\.\s]+", "", text)  # Remove any leading 'a)', 'b)', '-', etc.
+    # Only remove the common prefixes like 'a)', 'b)', '-', etc., at the start
+    text = re.sub(r"^[a-zA-Z\(\)\-\.\s]+", "", text)  # More specific regex to only remove prefix
     return text
 
 # --- Function to apply company-specific mappings ---
@@ -46,7 +51,6 @@ def apply_company_mappings(df, company, mapping_df):
     if df.empty or df.columns.empty:
         return df
     
-    # Get the mappings for the selected company
     company_map = mapping_df[mapping_df['Company'].str.lower() == company.lower()]
     
     if company_map.empty:
