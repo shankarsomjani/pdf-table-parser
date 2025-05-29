@@ -9,6 +9,7 @@ import openpyxl
 from openpyxl.styles import Font
 from openpyxl.utils.dataframe import dataframe_to_rows
 import re
+import pdfplumber  # <-- Added this import
 
 from adobe.pdfservices.operation.auth.service_principal_credentials import ServicePrincipalCredentials
 from adobe.pdfservices.operation.exception.exceptions import ServiceApiException, ServiceUsageException, SdkException
