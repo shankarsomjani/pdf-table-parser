@@ -1,4 +1,5 @@
 import os
+import time
 import streamlit as st
 import pandas as pd
 import io
@@ -25,11 +26,10 @@ def replace_x000d(excel_file):
     wb = openpyxl.load_workbook(excel_file)
     sheet = wb.active
     
-    # Iterate through all rows and columns to clean the data
     for row in sheet.iter_rows():
         for cell in row:
             if cell.value and isinstance(cell.value, str):
-                # Replace _x000D_ and other unwanted characters
+                # Replace unwanted characters and line breaks
                 cleaned_value = cell.value.replace('_x000D_', '').replace('\r', ' ').replace('\n', ' ').strip()
                 cell.value = cleaned_value
     
@@ -37,24 +37,15 @@ def replace_x000d(excel_file):
 
 # --- Function to clean prefixes like "a)", "b)" and similar ---
 def clean_prefixes(text):
-    """
-    Remove prefixes like 'a)', 'b)', '-', etc., from the text to match the CSV data.
-    """
     text = str(text).strip()  # Convert to string and remove leading/trailing spaces
-    # Remove leading 'a)', 'b)', '-', etc., and any spaces or dots
     text = re.sub(r"^[a-zA-Z\)\-\.\s]+", "", text)  # Remove any leading 'a)', 'b)', '-', etc.
     return text
 
 # --- Function to apply company-specific mappings ---
 def apply_company_mappings(df, company, mapping_df):
-    """
-    Apply company-specific mappings to the dataframe.
-    This will replace items in column A based on the CSV mappings.
-    """
     if df.empty or df.columns.empty:
         return df
     
-    # Get the mappings for the selected company
     company_map = mapping_df[mapping_df['Company'].str.lower() == company.lower()]
     
     if company_map.empty:
@@ -65,11 +56,10 @@ def apply_company_mappings(df, company, mapping_df):
         original = row['Original']
         mapped = row['Mapped']
         
-        # Handle None or NaN values safely
         if original and isinstance(original, str) and mapped:
             replace_dict[original.lower()] = mapped
     
-    # Apply the mapping replacement after cleaning prefixes, ensuring original cleaning logic is intact
+    # Apply the mapping replacement after cleaning prefixes
     df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: replace_dict.get(str(x).lower(), x) if pd.notna(x) else x)
 
     return df
@@ -116,18 +106,25 @@ def extract_pdf_with_adobe(uploaded_pdf):
 
     extract_pdf_job = ExtractPDFJob(input_asset=input_asset, extract_pdf_params=extract_pdf_params)
     location = pdf_services.submit(extract_pdf_job)
-    pdf_services_response = pdf_services.get_job_result(location, ExtractPDFResult)
+    
+    try:
+        pdf_services_response = pdf_services.get_job_result(location, ExtractPDFResult)
+        # Check if the response is valid
+        if pdf_services_response is None or pdf_services_response.get_result() is None:
+            raise ValueError("Adobe PDF Services did not return valid results.")
 
-    result_asset = pdf_services_response.get_result().get_resource()
-    stream_asset: StreamAsset = pdf_services.get_content(result_asset)
+        result_asset = pdf_services_response.get_result().get_resource()
+        stream_asset: StreamAsset = pdf_services.get_content(result_asset)
 
-    # Saving the extracted tables as a ZIP file
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    zip_path = f"/tmp/output_adobe_{timestamp}.zip"
-    with open(zip_path, "wb") as out_file:
-        out_file.write(stream_asset.get_input_stream())
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        zip_path = f"/tmp/output_adobe_{timestamp}.zip"
+        with open(zip_path, "wb") as out_file:
+            out_file.write(stream_asset.get_input_stream())
 
-    return zip_path
+        return zip_path
+    
+    except Exception as e:
+        raise ValueError(f"Error occurred while extracting PDF using Adobe API: {str(e)}")
 
 # --- Streamlit Page Setup ---
 st.set_page_config(page_title="PDF Table Extractor & Excel Updater", layout="centered")
@@ -155,7 +152,7 @@ if uploaded_pdf:
             # Step 2: Merge Excel files from ZIP and clean them
             excel_bytes = merge_adobe_tables(zip_path)
 
-            # Step 3: Process the merged Excel file
+            # Step 3: Process the merged Excel file (This is where cleaning happens)
             wb = replace_x000d(io.BytesIO(excel_bytes))
             sheet = wb.active
             data = sheet.values
@@ -165,11 +162,14 @@ if uploaded_pdf:
             # Step 4: Handle null values
             df = df.fillna('')
 
-            # Step 5: Apply company mappings
+            # Step 5: Clean up prefixes in the first column
+            df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: clean_prefixes(str(x)) if pd.notna(x) else x)
+
+            # Step 6: Apply company mappings (replace strings in the first column)
             if selected_company and not mapping_df.empty:
                 df = apply_company_mappings(df, selected_company, mapping_df)
 
-            # Step 6: Save and allow download
+            # Step 7: Save and allow download
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df.to_excel(writer, index=False, sheet_name=sheet.title)
