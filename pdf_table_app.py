@@ -1,15 +1,13 @@
+import os
 import streamlit as st
-import pdfplumber
 import pandas as pd
 import io
-import os
-import time
-import zipfile
-from datetime import datetime
-from openpyxl import load_workbook
-from openpyxl.styles import Font
+import openpyxl
 from openpyxl.utils.dataframe import dataframe_to_rows
 import re
+import zipfile
+from datetime import datetime
+from openpyxl.styles import Font
 
 from unstract.llmwhisperer import LLMWhispererClientV2
 from unstract.llmwhisperer.client_v2 import LLMWhispererClientException
@@ -30,7 +28,6 @@ def replace_x000d(excel_file):
     wb = openpyxl.load_workbook(excel_file)
     sheet = wb.active
     
-    # Iterate through all rows and columns to clean the data
     for row in sheet.iter_rows():
         for cell in row:
             if cell.value and isinstance(cell.value, str):
@@ -52,14 +49,9 @@ def clean_prefixes(text):
 
 # --- Function to apply company-specific mappings ---
 def apply_company_mappings(df, company, mapping_df):
-    """
-    Apply company-specific mappings to the dataframe.
-    This will replace items in column A based on the CSV mappings.
-    """
     if df.empty or df.columns.empty:
         return df
     
-    # Get the mappings for the selected company
     company_map = mapping_df[mapping_df['Company'].str.lower() == company.lower()]
     
     if company_map.empty:
@@ -70,7 +62,6 @@ def apply_company_mappings(df, company, mapping_df):
         original = row['Original']
         mapped = row['Mapped']
         
-        # Handle None or NaN values safely
         if original and isinstance(original, str) and mapped:
             replace_dict[original.lower()] = mapped
     
