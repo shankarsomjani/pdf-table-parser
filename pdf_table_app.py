@@ -2,15 +2,12 @@ import os
 import streamlit as st
 import pandas as pd
 import io
-import openpyxl
-from openpyxl.utils.dataframe import dataframe_to_rows
-import re
 import zipfile
 from datetime import datetime
+import openpyxl
 from openpyxl.styles import Font
-
-from unstract.llmwhisperer import LLMWhispererClientV2
-from unstract.llmwhisperer.client_v2 import LLMWhispererClientException
+from openpyxl.utils.dataframe import dataframe_to_rows
+import re
 
 from adobe.pdfservices.operation.auth.service_principal_credentials import ServicePrincipalCredentials
 from adobe.pdfservices.operation.exception.exceptions import ServiceApiException, ServiceUsageException, SdkException
@@ -28,6 +25,7 @@ def replace_x000d(excel_file):
     wb = openpyxl.load_workbook(excel_file)
     sheet = wb.active
     
+    # Iterate through all rows and columns to clean the data
     for row in sheet.iter_rows():
         for cell in row:
             if cell.value and isinstance(cell.value, str):
@@ -49,9 +47,14 @@ def clean_prefixes(text):
 
 # --- Function to apply company-specific mappings ---
 def apply_company_mappings(df, company, mapping_df):
+    """
+    Apply company-specific mappings to the dataframe.
+    This will replace items in column A based on the CSV mappings.
+    """
     if df.empty or df.columns.empty:
         return df
     
+    # Get the mappings for the selected company
     company_map = mapping_df[mapping_df['Company'].str.lower() == company.lower()]
     
     if company_map.empty:
@@ -62,6 +65,7 @@ def apply_company_mappings(df, company, mapping_df):
         original = row['Original']
         mapped = row['Mapped']
         
+        # Handle None or NaN values safely
         if original and isinstance(original, str) and mapped:
             replace_dict[original.lower()] = mapped
     
@@ -98,16 +102,36 @@ def merge_adobe_tables(zip_path: str) -> bytes:
     output.seek(0)
     return output.getvalue()
 
-# --- Page setup ---
+# --- Function to Extract PDF using Adobe PDF Services ---
+def extract_pdf_with_adobe(uploaded_pdf):
+    credentials = ServicePrincipalCredentials(client_id=os.getenv("PDF_SERVICES_CLIENT_ID"), client_secret=os.getenv("PDF_SERVICES_CLIENT_SECRET"))
+    pdf_services = PDFServices(credentials=credentials)
+    input_asset = pdf_services.upload(input_stream=uploaded_pdf, mime_type=PDFServicesMediaType.PDF)
+
+    extract_pdf_params = ExtractPDFParams(
+        elements_to_extract=[ExtractElementType.TEXT, ExtractElementType.TABLES],
+        elements_to_extract_renditions=[ExtractRenditionsElementType.TABLES],
+        add_char_info=True,
+    )
+
+    extract_pdf_job = ExtractPDFJob(input_asset=input_asset, extract_pdf_params=extract_pdf_params)
+    location = pdf_services.submit(extract_pdf_job)
+    pdf_services_response = pdf_services.get_job_result(location, ExtractPDFResult)
+
+    result_asset = pdf_services_response.get_result().get_resource()
+    stream_asset: StreamAsset = pdf_services.get_content(result_asset)
+
+    # Saving the extracted tables as a ZIP file
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    zip_path = f"/tmp/output_adobe_{timestamp}.zip"
+    with open(zip_path, "wb") as out_file:
+        out_file.write(stream_asset.get_input_stream())
+
+    return zip_path
+
+# --- Streamlit Page Setup ---
 st.set_page_config(page_title="PDF Table Extractor & Excel Updater", layout="centered")
 st.title("\U0001F4C4 PDF Table Extractor & Excel Updater")
-
-# --- Load company mapping CSV ---
-mapping_df = pd.read_csv("company_mappings.csv") if os.path.exists("company_mappings.csv") else pd.DataFrame(columns=['Company', 'Original', 'Mapped'])
-companies = sorted(mapping_df['Company'].unique()) if not mapping_df.empty else []
-
-# --- Company selection ---
-selected_company = st.selectbox("Select the company:", companies) if companies else None
 
 # --- Upload PDF file ---
 uploaded_pdf = st.file_uploader("Upload a PDF file", type="pdf")
@@ -115,107 +139,45 @@ uploaded_pdf = st.file_uploader("Upload a PDF file", type="pdf")
 # --- Mode selection ---
 mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via LLMWhisperer)", "Adobe PDF Services"])
 
+# --- Company Mapping CSV File ---
+mapping_df = pd.read_csv("company_mappings.csv") if os.path.exists("company_mappings.csv") else pd.DataFrame(columns=['Company', 'Original', 'Mapped'])
+companies = sorted(mapping_df['Company'].unique()) if not mapping_df.empty else []
+
+selected_company = st.selectbox("Select the company:", companies) if companies else None
+
 # --- Process Uploaded PDF File ---
 if uploaded_pdf:
-    if mode == "Standard (Code-based)":
-        with pdfplumber.open(uploaded_pdf) as pdf:
-            all_tables = []
-            for page_num, page in enumerate(pdf.pages, start=1):
-                tables = page.extract_tables()
-                for idx, table in enumerate(tables):
-                    if table:
-                        df = pd.DataFrame(table[1:], columns=table[0]) if len(table) > 1 else pd.DataFrame(table)
-                        all_tables.append((f"Page{page_num}_Table{idx+1}", df))
-
-        if all_tables:
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                for name, df in all_tables:
-                    df.to_excel(writer, sheet_name=name[:31], index=False)
-            st.success(f"✅ Extracted {len(all_tables)} table(s)")
-            st.download_button("📅 Download Excel File", output.getvalue(), "tables.xlsx")
-        else:
-            st.warning("⚠️ No tables found using standard method.")
-
-    elif mode == "LLM (via LLMWhisperer)":
-        if not st.secrets.get("LLM_API_KEY"):
-            st.error("❌ Missing LLMWhisperer API key. Please set it in Streamlit secrets.")
-        else:
-            try:
-                with st.spinner("🔄 Sending file to LLMWhisperer..."):
-                    whisperer = LLMWhispererClientV2(api_key=st.secrets.get("LLM_API_KEY"))
-                    temp_path = "/tmp/uploaded_llm.pdf"
-                    with open(temp_path, "wb") as f:
-                        f.write(uploaded_pdf.read())
-
-                    job_info = whisperer.whisper(
-                        file_path=temp_path,
-                        filename=uploaded_pdf.name,
-                        mode="form",
-                        output_mode="layout_preserving"
-                    )
-
-                    whisper_hash = job_info.get("whisper_hash")
-                    if not whisper_hash:
-                        st.error("❌ Failed to initiate LLMWhisperer job.")
-                        st.stop()
-
-                    st.info("⏳ Waiting for LLMWhisperer to process the file...")
-                    status = None
-                    for _ in range(20):
-                        status_info = whisperer.whisper_status(whisper_hash=whisper_hash)
-                        status = status_info.get("status")
-                        if status == "processed":
-                            break
-                        elif status == "error":
-                            st.error("❌ LLMWhisperer reported an error while processing the document.")
-                            st.stop()
-                        time.sleep(2)
-
-                    if status != "processed":
-                        st.warning("⚠️ Timed out waiting for LLMWhisperer to finish processing.")
-                        st.stop()
-
-                    result = whisperer.whisper_retrieve(whisper_hash=whisper_hash)
-                    st.success("✅ LLMWhisperer processing complete.")
-                    st.subheader("LLMWhisperer Extracted Output:")
-                    st.json(result)
-
-            except LLMWhispererClientException as e:
-                st.error(f"❌ LLMWhisperer API error: {str(e)}")
-            except Exception as e:
-                st.error(f"❌ Unexpected error: {str(e)}")
-
-    elif mode == "Adobe PDF Services":
+    if mode == "Adobe PDF Services":
         try:
             st.info("⏳ Extracting using Adobe PDF Services...")
-            credentials = ServicePrincipalCredentials(client_id=os.getenv("PDF_SERVICES_CLIENT_ID"), client_secret=os.getenv("PDF_SERVICES_CLIENT_SECRET"))
-            pdf_services = PDFServices(credentials=credentials)
-            input_asset = pdf_services.upload(input_stream=uploaded_pdf.read(), mime_type=PDFServicesMediaType.PDF)
+            zip_path = extract_pdf_with_adobe(uploaded_pdf)
 
-            extract_pdf_params = ExtractPDFParams(
-                elements_to_extract=[ExtractElementType.TEXT, ExtractElementType.TABLES],
-                elements_to_extract_renditions=[ExtractRenditionsElementType.TABLES],
-                add_char_info=True,
-            )
-
-            extract_pdf_job = ExtractPDFJob(input_asset=input_asset, extract_pdf_params=extract_pdf_params)
-            location = pdf_services.submit(extract_pdf_job)
-            pdf_services_response = pdf_services.get_job_result(location, ExtractPDFResult)
-
-            result_asset = pdf_services_response.get_result().get_resource()
-            stream_asset: StreamAsset = pdf_services.get_content(result_asset)
-
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            zip_path = f"/tmp/output_adobe_{timestamp}.zip"
-            with open(zip_path, "wb") as out_file:
-                out_file.write(stream_asset.get_input_stream())
-
+            # Step 2: Merge Excel files from ZIP and clean them
             excel_bytes = merge_adobe_tables(zip_path)
-            st.success("✅ Adobe PDF Services extraction complete.")
-            st.download_button("📊 Download Formatted Excel", excel_bytes, f"adobe_tables_{timestamp}.xlsx")
 
-        except (ServiceApiException, ServiceUsageException, SdkException) as e:
-            st.error(f"❌ Adobe API error: {str(e)}")
+            # Step 3: Process the merged Excel file
+            wb = replace_x000d(io.BytesIO(excel_bytes))
+            sheet = wb.active
+            data = sheet.values
+            columns = next(data)[0:]
+            df = pd.DataFrame(data, columns=columns)
+
+            # Step 4: Handle null values
+            df = df.fillna('')
+
+            # Step 5: Apply company mappings
+            if selected_company and not mapping_df.empty:
+                df = apply_company_mappings(df, selected_company, mapping_df)
+
+            # Step 6: Save and allow download
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name=sheet.title)
+
+            output.seek(0)
+            st.download_button("📊 Download Cleaned and Updated Excel", output, "cleaned_and_updated.xlsx")
+
+            st.success("✅ Excel file cleaned and updated successfully!")
+
         except Exception as e:
-            st.error(f"❌ Unexpected error: {str(e)}")
+            st.error(f"❌ Error processing the file: {str(e)}")
