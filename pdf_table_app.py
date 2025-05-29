@@ -35,17 +35,6 @@ def replace_x000d(excel_file):
     
     return wb
 
-# --- Function to clean prefixes like "a)", "b)" and similar ---
-def clean_prefixes(text):
-    """
-    Remove unwanted prefixes like 'a)', 'b)', '-', etc., from the text.
-    Only removes the prefix at the start of the string and preserves the rest.
-    """
-    text = str(text).strip()  # Convert to string and remove leading/trailing spaces
-    # Only remove the common prefixes like 'a)', 'b)', '-', etc., at the start
-    text = re.sub(r"^[a-zA-Z\(\)\-\.\s]+", "", text)  # More specific regex to only remove prefix
-    return text
-
 # --- Function to apply company-specific mappings ---
 def apply_company_mappings(df, company, mapping_df):
     if df.empty or df.columns.empty:
@@ -64,7 +53,7 @@ def apply_company_mappings(df, company, mapping_df):
         if original and isinstance(original, str) and mapped:
             replace_dict[original.lower()] = mapped
     
-    # Apply the mapping replacement after cleaning prefixes
+    # Apply the mapping replacement
     df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: replace_dict.get(str(x).lower(), x) if pd.notna(x) else x)
 
     return df
@@ -130,6 +119,54 @@ def extract_pdf_with_adobe(uploaded_pdf):
     except Exception as e:
         raise ValueError(f"Error occurred while extracting PDF using Adobe API: {str(e)}")
 
+# --- Function to process Standard extraction ---
+def extract_standard_pdf(uploaded_pdf):
+    # Extract tables from the uploaded PDF using pdfplumber (Standard method)
+    with pdfplumber.open(uploaded_pdf) as pdf:
+        all_tables = []
+        for page_num, page in enumerate(pdf.pages, start=1):
+            tables = page.extract_tables()
+            for idx, table in enumerate(tables):
+                if table:
+                    df = pd.DataFrame(table[1:], columns=table[0]) if len(table) > 1 else pd.DataFrame(table)
+                    all_tables.append((f"Page{page_num}_Table{idx+1}", df))
+    return all_tables
+
+# --- Function to process LLM extraction ---
+def extract_llm_pdf(uploaded_pdf, api_key):
+    whisperer = LLMWhispererClientV2(api_key=api_key, logging_level="DEBUG")
+    temp_path = "/tmp/uploaded_llm.pdf"
+    with open(temp_path, "wb") as f:
+        f.write(uploaded_pdf.read())
+
+    job_info = whisperer.whisper(
+        file_path=temp_path,
+        filename=uploaded_pdf.name,
+        mode="form",
+        output_mode="layout_preserving"
+    )
+
+    whisper_hash = job_info.get("whisper_hash")
+    if not whisper_hash:
+        raise ValueError("Failed to initiate LLMWhisperer job.")
+
+    st.info("⏳ Waiting for LLMWhisperer to process the file...")
+    status = None
+    for _ in range(20):
+        status_info = whisperer.whisper_status(whisper_hash=whisper_hash)
+        status = status_info.get("status")
+        if status == "processed":
+            break
+        elif status == "error":
+            raise ValueError("LLMWhisperer reported an error while processing the document.")
+        time.sleep(2)
+
+    if status != "processed":
+        raise ValueError("Timed out waiting for LLMWhisperer to finish processing.")
+
+    result = whisperer.whisper_retrieve(whisper_hash=whisper_hash)
+    return result
+
 # --- Streamlit Page Setup ---
 st.set_page_config(page_title="PDF Table Extractor & Excel Updater", layout="centered")
 st.title("\U0001F4C4 PDF Table Extractor & Excel Updater")
@@ -166,14 +203,11 @@ if uploaded_pdf:
             # Step 4: Handle null values
             df = df.fillna('')
 
-            # Step 5: Clean up prefixes in the first column
-            df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: clean_prefixes(str(x)) if pd.notna(x) else x)
-
-            # Step 6: Apply company mappings (replace strings in the first column)
+            # Step 5: Apply company mappings (replace strings in the first column)
             if selected_company and not mapping_df.empty:
                 df = apply_company_mappings(df, selected_company, mapping_df)
 
-            # Step 7: Save and allow download
+            # Step 6: Save and allow download
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df.to_excel(writer, index=False, sheet_name=sheet.title)
@@ -185,3 +219,35 @@ if uploaded_pdf:
 
         except Exception as e:
             st.error(f"❌ Error processing the file: {str(e)}")
+
+    elif mode == "Standard (Code-based)":
+        try:
+            st.info("⏳ Extracting using Standard method...")
+            all_tables = extract_standard_pdf(uploaded_pdf)
+
+            if all_tables:
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    for name, df in all_tables:
+                        df.to_excel(writer, sheet_name=name[:31], index=False)
+                st.success(f"✅ Extracted {len(all_tables)} table(s) using Standard method")
+                st.download_button("📅 Download Standard Extracted Excel", output.getvalue(), "standard_tables.xlsx")
+            else:
+                st.warning("⚠️ No tables found using standard method.")
+
+        except Exception as e:
+            st.error(f"❌ Error processing Standard extraction: {str(e)}")
+
+    elif mode == "LLM (via LLMWhisperer)":
+        try:
+            st.info("⏳ Extracting using LLMWhisperer...")
+            if not LLM_API_KEY:
+                st.error("❌ Missing LLMWhisperer API key. Please set it in Streamlit secrets.")
+            else:
+                result = extract_llm_pdf(uploaded_pdf, LLM_API_KEY)
+                st.success("✅ LLMWhisperer processing complete.")
+                st.subheader("LLMWhisperer Extracted Output:")
+                st.json(result)
+
+        except Exception as e:
+            st.error(f"❌ Error processing LLMWhisperer extraction: {str(e)}")
