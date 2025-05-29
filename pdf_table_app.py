@@ -46,6 +46,7 @@ def apply_company_mappings(df, company, mapping_df):
     if df.empty or df.columns.empty:
         return df
     
+    # Get the mappings for the selected company
     company_map = mapping_df[mapping_df['Company'].str.lower() == company.lower()]
     
     if company_map.empty:
@@ -109,7 +110,6 @@ def extract_pdf_with_adobe(uploaded_pdf):
     
     try:
         pdf_services_response = pdf_services.get_job_result(location, ExtractPDFResult)
-        # Check if the response is valid
         if pdf_services_response is None or pdf_services_response.get_result() is None:
             raise ValueError("Adobe PDF Services did not return valid results.")
 
@@ -130,17 +130,17 @@ def extract_pdf_with_adobe(uploaded_pdf):
 st.set_page_config(page_title="PDF Table Extractor & Excel Updater", layout="centered")
 st.title("\U0001F4C4 PDF Table Extractor & Excel Updater")
 
-# --- Upload PDF file ---
-uploaded_pdf = st.file_uploader("Upload a PDF file", type="pdf")
-
-# --- Mode selection ---
-mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via LLMWhisperer)", "Adobe PDF Services"])
-
 # --- Company Mapping CSV File ---
 mapping_df = pd.read_csv("company_mappings.csv") if os.path.exists("company_mappings.csv") else pd.DataFrame(columns=['Company', 'Original', 'Mapped'])
 companies = sorted(mapping_df['Company'].unique()) if not mapping_df.empty else []
 
 selected_company = st.selectbox("Select the company:", companies) if companies else None
+
+# --- Upload PDF file ---
+uploaded_pdf = st.file_uploader("Upload a PDF file", type="pdf")
+
+# --- Mode selection ---
+mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via LLMWhisperer)", "Adobe PDF Services"])
 
 # --- Process Uploaded PDF File ---
 if uploaded_pdf:
