@@ -9,6 +9,7 @@ from datetime import datetime
 from openpyxl import load_workbook
 from openpyxl.styles import Font
 from openpyxl.utils.dataframe import dataframe_to_rows
+import re
 
 from unstract.llmwhisperer import LLMWhispererClientV2
 from unstract.llmwhisperer.client_v2 import LLMWhispererClientException
@@ -24,30 +25,65 @@ from adobe.pdfservices.operation.pdfjobs.params.extract_pdf.extract_pdf_params i
 from adobe.pdfservices.operation.pdfjobs.params.extract_pdf.extract_renditions_element_type import ExtractRenditionsElementType
 from adobe.pdfservices.operation.pdfjobs.result.extract_pdf_result import ExtractPDFResult
 
-# --- Page setup ---
-st.set_page_config(page_title="PDF Table Extractor", layout="centered")
-st.title("\U0001F4C4 PDF Table Extractor")
+# --- Function to replace _x000D_ and other unwanted characters ---
+def replace_x000d(excel_file):
+    wb = openpyxl.load_workbook(excel_file)
+    sheet = wb.active
+    
+    # Iterate through all rows and columns to clean the data
+    for row in sheet.iter_rows():
+        for cell in row:
+            if cell.value and isinstance(cell.value, str):
+                # Replace _x000D_ and other unwanted characters
+                cleaned_value = cell.value.replace('_x000D_', '').replace('\r', ' ').replace('\n', ' ').strip()
+                cell.value = cleaned_value
+    
+    return wb
 
-# --- Upload ---
-uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
+# --- Function to clean prefixes like "a)", "b)" and similar ---
+def clean_prefixes(text):
+    """
+    Remove prefixes like 'a)', 'b)', '-', etc., from the text to match the CSV data.
+    """
+    text = str(text).strip()  # Convert to string and remove leading/trailing spaces
+    # Remove leading 'a)', 'b)', '-', etc., and any spaces or dots
+    text = re.sub(r"^[a-zA-Z\)\-\.\s]+", "", text)  # Remove any leading 'a)', 'b)', '-', etc.
+    return text
 
-# --- Mode selection ---
-mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via LLMWhisperer)", "Adobe PDF Services"])
+# --- Function to apply company-specific mappings ---
+def apply_company_mappings(df, company, mapping_df):
+    """
+    Apply company-specific mappings to the dataframe.
+    This will replace items in column A based on the CSV mappings.
+    """
+    if df.empty or df.columns.empty:
+        return df
+    
+    # Get the mappings for the selected company
+    company_map = mapping_df[mapping_df['Company'].str.lower() == company.lower()]
+    
+    if company_map.empty:
+        return df  # If no mappings found for the selected company, return the original dataframe
+    
+    replace_dict = {}
+    for _, row in company_map.iterrows():
+        original = row['Original']
+        mapped = row['Mapped']
+        
+        # Handle None or NaN values safely
+        if original and isinstance(original, str) and mapped:
+            replace_dict[original.lower()] = mapped
+    
+    # Apply the mapping replacement after cleaning prefixes, ensuring original cleaning logic is intact
+    df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: replace_dict.get(str(x).lower(), x) if pd.notna(x) else x)
 
-# --- Load API key ---
-LLM_API_KEY = st.secrets.get("LLM_API_KEY")
-
-# --- Adobe credentials ---
-ADOBE_CLIENT_ID = os.getenv("PDF_SERVICES_CLIENT_ID")
-ADOBE_CLIENT_SECRET = os.getenv("PDF_SERVICES_CLIENT_SECRET")
-
+    return df
 
 # --- Adobe Table Formatter ---
 def merge_adobe_tables(zip_path: str) -> bytes:
     output = io.BytesIO()
     writer = pd.ExcelWriter(output, engine='openpyxl')
-    from openpyxl import Workbook
-    wb = Workbook()
+    wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Combined Tables"
 
@@ -59,13 +95,10 @@ def merge_adobe_tables(zip_path: str) -> bytes:
                 df = pd.read_excel(f)
                 if df.empty:
                     continue
-                # Add section title
                 ws.append([f"Table {table_count}"])
                 ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=12)
-                # Write the table
                 for r in dataframe_to_rows(df, index=False, header=True):
                     ws.append(r)
-                # Add 2 blank rows
                 ws.append([])
                 ws.append([])
                 table_count += 1
@@ -74,11 +107,27 @@ def merge_adobe_tables(zip_path: str) -> bytes:
     output.seek(0)
     return output.getvalue()
 
+# --- Page setup ---
+st.set_page_config(page_title="PDF Table Extractor & Excel Updater", layout="centered")
+st.title("\U0001F4C4 PDF Table Extractor & Excel Updater")
 
-# --- Process Uploaded File ---
-if uploaded_file:
+# --- Load company mapping CSV ---
+mapping_df = pd.read_csv("company_mappings.csv") if os.path.exists("company_mappings.csv") else pd.DataFrame(columns=['Company', 'Original', 'Mapped'])
+companies = sorted(mapping_df['Company'].unique()) if not mapping_df.empty else []
+
+# --- Company selection ---
+selected_company = st.selectbox("Select the company:", companies) if companies else None
+
+# --- Upload PDF file ---
+uploaded_pdf = st.file_uploader("Upload a PDF file", type="pdf")
+
+# --- Mode selection ---
+mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via LLMWhisperer)", "Adobe PDF Services"])
+
+# --- Process Uploaded PDF File ---
+if uploaded_pdf:
     if mode == "Standard (Code-based)":
-        with pdfplumber.open(uploaded_file) as pdf:
+        with pdfplumber.open(uploaded_pdf) as pdf:
             all_tables = []
             for page_num, page in enumerate(pdf.pages, start=1):
                 tables = page.extract_tables()
@@ -98,19 +147,19 @@ if uploaded_file:
             st.warning("⚠️ No tables found using standard method.")
 
     elif mode == "LLM (via LLMWhisperer)":
-        if not LLM_API_KEY:
+        if not st.secrets.get("LLM_API_KEY"):
             st.error("❌ Missing LLMWhisperer API key. Please set it in Streamlit secrets.")
         else:
             try:
                 with st.spinner("🔄 Sending file to LLMWhisperer..."):
-                    whisperer = LLMWhispererClientV2(api_key=LLM_API_KEY, logging_level="DEBUG")
+                    whisperer = LLMWhispererClientV2(api_key=st.secrets.get("LLM_API_KEY"))
                     temp_path = "/tmp/uploaded_llm.pdf"
                     with open(temp_path, "wb") as f:
-                        f.write(uploaded_file.read())
+                        f.write(uploaded_pdf.read())
 
                     job_info = whisperer.whisper(
                         file_path=temp_path,
-                        filename=uploaded_file.name,
+                        filename=uploaded_pdf.name,
                         mode="form",
                         output_mode="layout_preserving"
                     )
@@ -149,9 +198,9 @@ if uploaded_file:
     elif mode == "Adobe PDF Services":
         try:
             st.info("⏳ Extracting using Adobe PDF Services...")
-            credentials = ServicePrincipalCredentials(client_id=ADOBE_CLIENT_ID, client_secret=ADOBE_CLIENT_SECRET)
+            credentials = ServicePrincipalCredentials(client_id=os.getenv("PDF_SERVICES_CLIENT_ID"), client_secret=os.getenv("PDF_SERVICES_CLIENT_SECRET"))
             pdf_services = PDFServices(credentials=credentials)
-            input_asset = pdf_services.upload(input_stream=uploaded_file.read(), mime_type=PDFServicesMediaType.PDF)
+            input_asset = pdf_services.upload(input_stream=uploaded_pdf.read(), mime_type=PDFServicesMediaType.PDF)
 
             extract_pdf_params = ExtractPDFParams(
                 elements_to_extract=[ExtractElementType.TEXT, ExtractElementType.TABLES],
