@@ -13,6 +13,17 @@ import pdfplumber
 import importlib.metadata
 from unstract.llmwhisperer import LLMWhispererClientV2
 
+# --- Page setup (must be first) ---
+st.set_page_config(page_title="PDF Table Extractor & Excel Updater", layout="centered")
+
+# --- Display Adobe SDK version (optional) ---
+try:
+    version = importlib.metadata.version("pdfservices-sdk")
+    st.write("Adobe PDF SDK version:", version)
+except Exception as e:
+    st.write("Could not detect version:", str(e))
+
+# --- Adobe PDF Services SDK Imports ---
 from adobe.pdfservices.operation.auth.service_principal_credentials import ServicePrincipalCredentials
 from adobe.pdfservices.operation.exception.exceptions import ServiceApiException, ServiceUsageException, SdkException
 from adobe.pdfservices.operation.io.stream_asset import StreamAsset
@@ -24,16 +35,7 @@ from adobe.pdfservices.operation.pdfjobs.params.extract_pdf.extract_pdf_params i
 from adobe.pdfservices.operation.pdfjobs.params.extract_pdf.extract_renditions_element_type import ExtractRenditionsElementType
 from adobe.pdfservices.operation.pdfjobs.result.extract_pdf_result import ExtractPDFResult
 
-st.set_page_config(page_title="PDF Table Extractor & Excel Updater", layout="centered")
-
-# --- Helper to show SDK version ---
-try:
-    version = importlib.metadata.version("pdfservices-sdk")
-    st.write("Adobe PDF SDK version:", version)
-except Exception as e:
-    st.write("Could not detect version:", str(e))
-
-# --- Clean Excel content ---
+# --- Replace _x000D_ and line breaks ---
 def replace_x000d(excel_file):
     wb = openpyxl.load_workbook(excel_file)
     sheet = wb.active
@@ -44,7 +46,7 @@ def replace_x000d(excel_file):
                 cell.value = cleaned_value
     return wb
 
-# --- Company-specific mappings ---
+# --- Apply Company Mappings ---
 def apply_company_mappings(df, company, mapping_df):
     if df.empty or df.columns.empty:
         return df
@@ -55,7 +57,7 @@ def apply_company_mappings(df, company, mapping_df):
     df.iloc[:, 0] = df.iloc[:, 0].apply(lambda x: replace_dict.get(str(x).strip().lower(), x) if pd.notna(x) else x)
     return df
 
-# --- Adobe Table Formatter ---
+# --- Merge Adobe Excel Tables ---
 def merge_adobe_tables(zip_path: str) -> bytes:
     output = io.BytesIO()
     wb = openpyxl.Workbook()
@@ -80,7 +82,7 @@ def merge_adobe_tables(zip_path: str) -> bytes:
     output.seek(0)
     return output.getvalue()
 
-# --- Adobe PDF Extraction ---
+# --- Extract PDF using Adobe ---
 def extract_pdf_with_adobe(uploaded_pdf):
     credentials = ServicePrincipalCredentials(
         client_id=os.getenv("PDF_SERVICES_CLIENT_ID"),
@@ -128,9 +130,8 @@ def extract_standard_pdf(uploaded_pdf):
                     all_tables.append((f"Page{page_num}_Table{idx+1}", df))
     return all_tables
 
-# --- Parse Whisper Text to DataFrame ---
+# --- Parse Raw LLM Text into Table ---
 def parse_llm_text_to_df(text):
-    import re
     lines = text.splitlines()
     rows = []
     for line in lines:
@@ -141,7 +142,6 @@ def parse_llm_text_to_df(text):
         if match:
             key = match.group(1).strip()
             value = match.group(2).strip().replace(",", "")
-            value = value.replace("₹", "")
             if value.startswith("(") and value.endswith(")"):
                 value = "-" + value[1:-1]
             try:
@@ -153,40 +153,42 @@ def parse_llm_text_to_df(text):
         return None
     return pd.DataFrame(rows, columns=["Line Item", "Amount (₹ Cr)"])
 
-# --- LLM Whisperer ---
+# --- Extract LLMWhisperer ---
 def extract_llm_pdf(uploaded_pdf, api_key):
     whisperer = LLMWhispererClientV2(api_key=api_key, logging_level="DEBUG")
     temp_path = "/tmp/uploaded_llm.pdf"
     with open(temp_path, "wb") as f:
         f.write(uploaded_pdf.read())
+
     job_info = whisperer.whisper(
         file_path=temp_path,
         filename=uploaded_pdf.name,
         mode="form",
         output_mode="layout_preserving"
     )
+
     whisper_hash = job_info.get("whisper_hash")
     if not whisper_hash:
         raise ValueError("Failed to initiate LLMWhisperer job.")
+
     st.info("⏳ Waiting for LLMWhisperer to process the file...")
     for _ in range(20):
         status_info = whisperer.whisper_status(whisper_hash=whisper_hash)
-        status = status_info.get("status")
-        if status == "processed":
+        if status_info.get("status") == "processed":
             break
-        elif status == "error":
+        elif status_info.get("status") == "error":
             raise ValueError("LLMWhisperer reported an error while processing the document.")
         time.sleep(2)
-    if status != "processed":
-        raise ValueError("Timed out waiting for LLMWhisperer to finish processing.")
+
     return whisperer.whisper_retrieve(whisper_hash=whisper_hash)
 
-# --- UI ---
-st.title("📄 PDF Table Extractor & Excel Updater")
+# --- Streamlit UI ---
+st.title("\U0001F4C4 PDF Table Extractor & Excel Updater")
 
 mapping_df = pd.read_csv("company_mappings.csv") if os.path.exists("company_mappings.csv") else pd.DataFrame(columns=['Company', 'Original', 'Mapped'])
 companies = sorted(mapping_df['Company'].unique()) if not mapping_df.empty else []
 selected_company = st.selectbox("Select the company:", companies) if companies else None
+
 uploaded_pdf = st.file_uploader("Upload a PDF file", type="pdf")
 mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via LLMWhisperer)", "Adobe PDF Services"])
 
@@ -238,7 +240,7 @@ if uploaded_pdf:
                 result = extract_llm_pdf(uploaded_pdf, LLM_API_KEY)
                 raw_text = str(result) if isinstance(result, (dict, list)) else result
                 df = parse_llm_text_to_df(raw_text)
-                if df is not None:
+                if df is not None and not df.empty:
                     output = io.BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
                         df.to_excel(writer, index=False, sheet_name="LLM Extract")
@@ -248,6 +250,6 @@ if uploaded_pdf:
                     st.dataframe(df)
                 else:
                     st.warning("⚠️ Could not parse structured table from LLMWhisperer output.")
-                    st.text(raw_text)
+                    st.text_area("🔍 Raw Output from LLMWhisperer", raw_text, height=500)
         except Exception as e:
             st.error(f"❌ Error processing LLMWhisperer extraction: {str(e)}")
