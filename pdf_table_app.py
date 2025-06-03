@@ -83,9 +83,9 @@ def extract_pdf_with_adobe(uploaded_pdf):
     extract_pdf_params = ExtractPDFParams(
     elements_to_extract=[ExtractElementType.TEXT, ExtractElementType.TABLES],
     elements_to_extract_renditions=[ExtractRenditionsElementType.TABLES],
-    add_char_info=True,
-    ocr_enabled=True
+    add_char_info=True
     )
+    extract_pdf_params.set_ocr(True)
 
     extract_pdf_job = ExtractPDFJob(input_asset=input_asset, extract_pdf_params=extract_pdf_params)
     location = pdf_services.submit(extract_pdf_job)
