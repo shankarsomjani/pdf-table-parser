@@ -11,6 +11,8 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 import re
 import pdfplumber
 import importlib.metadata
+st.set_page_config(page_title="PDF Table Extractor & Excel Updater", layout="centered")
+
 try:
     version = importlib.metadata.version("pdfservices-sdk")
     st.write("Adobe PDF SDK version:", version)
