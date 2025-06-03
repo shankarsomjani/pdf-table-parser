@@ -22,9 +22,9 @@ from adobe.pdfservices.operation.pdfjobs.params.extract_pdf.extract_pdf_params i
 from adobe.pdfservices.operation.pdfjobs.params.extract_pdf.extract_renditions_element_type import ExtractRenditionsElementType
 from adobe.pdfservices.operation.pdfjobs.result.extract_pdf_result import ExtractPDFResult
 
-# Import OCR parameters
-from adobe.pdfservices.operation.pdfjobs.params.extract_pdf.ocr_params import OcrParams
-from adobe.pdfservices.operation.pdfjobs.params.extract_pdf.ocr_language import OcrLanguage
+# Import OCR Job and Result classes
+from adobe.pdfservices.operation.pdfjobs.jobs.ocr_pdf_job import OCRPDFJob
+from adobe.pdfservices.operation.pdfjobs.result.ocr_pdf_result import OCRPDFResult
 
 # --- Function to replace _x000D_ and other unwanted characters ---
 def replace_x000d(excel_file):
@@ -86,7 +86,7 @@ def merge_adobe_tables(zip_path: str) -> bytes:
     output.seek(0)
     return output.getvalue()
 
-# --- Function to Extract PDF using Adobe PDF Services with optional OCR ---
+# --- Updated Function to Extract PDF using Adobe PDF Services with OCR two-step flow ---
 def extract_pdf_with_adobe(uploaded_pdf, use_ocr=False):
     credentials = ServicePrincipalCredentials(
         client_id=os.getenv("PDF_SERVICES_CLIENT_ID"),
@@ -96,43 +96,51 @@ def extract_pdf_with_adobe(uploaded_pdf, use_ocr=False):
     input_asset = pdf_services.upload(input_stream=uploaded_pdf, mime_type=PDFServicesMediaType.PDF)
 
     if use_ocr:
-        ocr_params = OcrParams(
-            ocr=True,
-            ocr_language=OcrLanguage.ENGLISH  # Change or make dynamic if needed
-        )
+        # Step 1: Run OCR job
+        ocr_job = OCRPDFJob(input_asset=input_asset)
+        location_ocr = pdf_services.submit(ocr_job)
+        ocr_result = pdf_services.get_job_result(location_ocr, OCRPDFResult)
+
+        # Get OCR'ed PDF as input stream for extract job
+        ocr_pdf_asset = pdf_services.get_content(ocr_result.get_result().get_asset())
+        ocr_pdf_stream = ocr_pdf_asset.get_input_stream()
+
+        # Upload the OCR'ed PDF as new input asset
+        extract_input_asset = pdf_services.upload(input_stream=ocr_pdf_stream, mime_type=PDFServicesMediaType.PDF)
+
+        # Step 2: Run extraction job on OCR'ed PDF
         extract_pdf_params = ExtractPDFParams(
             elements_to_extract=[ExtractElementType.TEXT, ExtractElementType.TABLES],
             elements_to_extract_renditions=[ExtractRenditionsElementType.TABLES],
             add_char_info=True,
-            ocr_params=ocr_params
         )
+        extract_job = ExtractPDFJob(input_asset=extract_input_asset, extract_pdf_params=extract_pdf_params)
+        location_extract = pdf_services.submit(extract_job)
+        extract_result = pdf_services.get_job_result(location_extract, ExtractPDFResult)
+
+        result_asset = extract_result.get_result().get_resource()
+        stream_asset = pdf_services.get_content(result_asset)
+
     else:
+        # Run extraction job directly on input PDF without OCR
         extract_pdf_params = ExtractPDFParams(
             elements_to_extract=[ExtractElementType.TEXT, ExtractElementType.TABLES],
             elements_to_extract_renditions=[ExtractRenditionsElementType.TABLES],
             add_char_info=True,
         )
+        extract_job = ExtractPDFJob(input_asset=input_asset, extract_pdf_params=extract_pdf_params)
+        location = pdf_services.submit(extract_job)
+        extract_result = pdf_services.get_job_result(location, ExtractPDFResult)
 
-    extract_pdf_job = ExtractPDFJob(input_asset=input_asset, extract_pdf_params=extract_pdf_params)
-    location = pdf_services.submit(extract_pdf_job)
+        result_asset = extract_result.get_result().get_resource()
+        stream_asset = pdf_services.get_content(result_asset)
 
-    try:
-        pdf_services_response = pdf_services.get_job_result(location, ExtractPDFResult)
-        if pdf_services_response is None or pdf_services_response.get_result() is None:
-            raise ValueError("Adobe PDF Services did not return valid results.")
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    zip_path = f"/tmp/output_adobe_{timestamp}.zip"
+    with open(zip_path, "wb") as out_file:
+        out_file.write(stream_asset.get_input_stream())
 
-        result_asset = pdf_services_response.get_result().get_resource()
-        stream_asset: StreamAsset = pdf_services.get_content(result_asset)
-
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        zip_path = f"/tmp/output_adobe_{timestamp}.zip"
-        with open(zip_path, "wb") as out_file:
-            out_file.write(stream_asset.get_input_stream())
-
-        return zip_path
-
-    except Exception as e:
-        raise ValueError(f"Error occurred while extracting PDF using Adobe API: {str(e)}")
+    return zip_path
 
 # --- Function to process Standard extraction ---
 def extract_standard_pdf(uploaded_pdf):
