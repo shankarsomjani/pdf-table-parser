@@ -11,14 +11,16 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 import re
 import pdfplumber
 import importlib.metadata
+
+# Page config must be at the top before any Streamlit commands
 st.set_page_config(page_title="PDF Table Extractor & Excel Updater", layout="centered")
 
+# Confirm Adobe SDK version
 try:
     version = importlib.metadata.version("pdfservices-sdk")
     st.write("Adobe PDF SDK version:", version)
 except Exception as e:
     st.write("Could not detect version:", str(e))
-
 
 from adobe.pdfservices.operation.auth.service_principal_credentials import ServicePrincipalCredentials
 from adobe.pdfservices.operation.exception.exceptions import ServiceApiException, ServiceUsageException, SdkException
@@ -90,12 +92,12 @@ def extract_pdf_with_adobe(uploaded_pdf):
     input_asset = pdf_services.upload(input_stream=uploaded_pdf, mime_type=PDFServicesMediaType.PDF)
 
     extract_pdf_params = ExtractPDFParams.builder() \
-    .add_element_to_extract(ExtractElementType.TEXT) \
-    .add_element_to_extract(ExtractElementType.TABLES) \
-    .add_element_to_extract_renditions(ExtractRenditionsElementType.TABLES) \
-    .add_char_info(True) \
-    .with_ocr_enabled(True) \
-    .build()
+        .add_element_to_extract(ExtractElementType.TEXT) \
+        .add_element_to_extract(ExtractElementType.TABLES) \
+        .add_element_to_extract_renditions(ExtractRenditionsElementType.TABLES) \
+        .add_char_info(True) \
+        .with_ocr_enabled(True) \
+        .build()
 
     extract_pdf_job = ExtractPDFJob(input_asset=input_asset, extract_pdf_params=extract_pdf_params)
     location = pdf_services.submit(extract_pdf_job)
@@ -164,8 +166,7 @@ def extract_llm_pdf(uploaded_pdf, api_key):
     result = whisperer.whisper_retrieve(whisper_hash=whisper_hash)
     return result
 
-# --- Streamlit App ---
-st.set_page_config(page_title="PDF Table Extractor & Excel Updater", layout="centered")
+# --- Streamlit App UI ---
 st.title("\U0001F4C4 PDF Table Extractor & Excel Updater")
 
 mapping_df = pd.read_csv("company_mappings.csv") if os.path.exists("company_mappings.csv") else pd.DataFrame(columns=['Company', 'Original', 'Mapped'])
