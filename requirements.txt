@@ -13,10 +13,8 @@ llmwhisperer-client
 unstract-client
 
 # LlamaIndex & LlamaExtract
-llama-index
-llama-index-core
-llama-index-cloud
-llama-index-extractors
+llama-index[cloud,extractors]
+
 
 # Pydantic (for future schema-based extraction, optional but safe)
 pydantic
