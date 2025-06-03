@@ -1,9 +1,25 @@
+# Streamlit & core packages
 streamlit
-pdfplumber
 pandas
 openpyxl
+pdfplumber
+
+# Adobe PDF Services SDK
+pdfservices-sdk==4.1.1
+
+# LLMWhisperer SDK
 requests
 llmwhisperer-client
 unstract-client
-pdfservices-sdk==4.1.1
 
+# LlamaIndex & LlamaExtract
+llama-index
+llama-index-core
+llama-index-cloud
+llama-index-extractors
+
+# Pydantic (for future schema-based extraction, optional but safe)
+pydantic
+
+# Other utilities
+python-dotenv
