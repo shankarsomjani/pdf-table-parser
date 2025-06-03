@@ -10,8 +10,12 @@ from openpyxl.styles import Font
 from openpyxl.utils.dataframe import dataframe_to_rows
 import re
 import pdfplumber
-import pkg_resources
-st.write("Adobe PDF SDK version:", pkg_resources.get_distribution("pdfservices-sdk").version)
+import importlib.metadata
+try:
+    version = importlib.metadata.version("pdfservices-sdk")
+    st.write("Adobe PDF SDK version:", version)
+except Exception as e:
+    st.write("Could not detect version:", str(e))
 
 
 from adobe.pdfservices.operation.auth.service_principal_credentials import ServicePrincipalCredentials
