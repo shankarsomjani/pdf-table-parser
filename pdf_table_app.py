@@ -11,16 +11,7 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 import re
 import pdfplumber
 import importlib.metadata
-
-# Page config must be at the top before any Streamlit commands
-st.set_page_config(page_title="PDF Table Extractor & Excel Updater", layout="centered")
-
-# Confirm Adobe SDK version
-try:
-    version = importlib.metadata.version("pdfservices-sdk")
-    st.write("Adobe PDF SDK version:", version)
-except Exception as e:
-    st.write("Could not detect version:", str(e))
+from unstract.llmwhisperer import LLMWhispererClientV2
 
 from adobe.pdfservices.operation.auth.service_principal_credentials import ServicePrincipalCredentials
 from adobe.pdfservices.operation.exception.exceptions import ServiceApiException, ServiceUsageException, SdkException
@@ -33,9 +24,16 @@ from adobe.pdfservices.operation.pdfjobs.params.extract_pdf.extract_pdf_params i
 from adobe.pdfservices.operation.pdfjobs.params.extract_pdf.extract_renditions_element_type import ExtractRenditionsElementType
 from adobe.pdfservices.operation.pdfjobs.result.extract_pdf_result import ExtractPDFResult
 
-from unstract.llmwhisperer import LLMWhispererClientV2
+st.set_page_config(page_title="PDF Table Extractor & Excel Updater", layout="centered")
 
-# --- Function to replace _x000D_ and other unwanted characters ---
+# --- Helper to show SDK version ---
+try:
+    version = importlib.metadata.version("pdfservices-sdk")
+    st.write("Adobe PDF SDK version:", version)
+except Exception as e:
+    st.write("Could not detect version:", str(e))
+
+# --- Clean Excel content ---
 def replace_x000d(excel_file):
     wb = openpyxl.load_workbook(excel_file)
     sheet = wb.active
@@ -46,7 +44,7 @@ def replace_x000d(excel_file):
                 cell.value = cleaned_value
     return wb
 
-# --- Function to apply company-specific mappings ---
+# --- Company-specific mappings ---
 def apply_company_mappings(df, company, mapping_df):
     if df.empty or df.columns.empty:
         return df
@@ -82,7 +80,7 @@ def merge_adobe_tables(zip_path: str) -> bytes:
     output.seek(0)
     return output.getvalue()
 
-# --- Function to Extract PDF using Adobe PDF Services with OCR ---
+# --- Adobe PDF Extraction ---
 def extract_pdf_with_adobe(uploaded_pdf):
     credentials = ServicePrincipalCredentials(
         client_id=os.getenv("PDF_SERVICES_CLIENT_ID"),
@@ -92,10 +90,9 @@ def extract_pdf_with_adobe(uploaded_pdf):
     input_asset = pdf_services.upload(input_stream=uploaded_pdf, mime_type=PDFServicesMediaType.PDF)
 
     extract_pdf_params = ExtractPDFParams(
-    elements_to_extract=[ExtractElementType.TEXT, ExtractElementType.TABLES],
-    elements_to_extract_renditions=[ExtractRenditionsElementType.TABLES],
-    add_char_info=True,
-    ocr_enabled=True
+        elements_to_extract=[ExtractElementType.TEXT, ExtractElementType.TABLES],
+        elements_to_extract_renditions=[ExtractRenditionsElementType.TABLES],
+        add_char_info=True
     )
 
     extract_pdf_job = ExtractPDFJob(input_asset=input_asset, extract_pdf_params=extract_pdf_params)
@@ -119,7 +116,7 @@ def extract_pdf_with_adobe(uploaded_pdf):
     except Exception as e:
         raise ValueError(f"Error occurred while extracting PDF using Adobe API: {str(e)}")
 
-# --- Function to process Standard extraction ---
+# --- Standard Extraction ---
 def extract_standard_pdf(uploaded_pdf):
     with pdfplumber.open(uploaded_pdf) as pdf:
         all_tables = []
@@ -131,24 +128,46 @@ def extract_standard_pdf(uploaded_pdf):
                     all_tables.append((f"Page{page_num}_Table{idx+1}", df))
     return all_tables
 
-# --- Function to process LLM extraction ---
+# --- Parse Whisper Text to DataFrame ---
+def parse_llm_text_to_df(text):
+    import re
+    lines = text.splitlines()
+    rows = []
+    for line in lines:
+        line = line.strip()
+        if not line or ":" in line:
+            continue
+        match = re.match(r"^(.*?)([-+]?\(?\d[\d,\.]*\)?)$", line)
+        if match:
+            key = match.group(1).strip()
+            value = match.group(2).strip().replace(",", "")
+            value = value.replace("₹", "")
+            if value.startswith("(") and value.endswith(")"):
+                value = "-" + value[1:-1]
+            try:
+                value = float(value)
+            except:
+                continue
+            rows.append((key, value))
+    if not rows:
+        return None
+    return pd.DataFrame(rows, columns=["Line Item", "Amount (₹ Cr)"])
+
+# --- LLM Whisperer ---
 def extract_llm_pdf(uploaded_pdf, api_key):
     whisperer = LLMWhispererClientV2(api_key=api_key, logging_level="DEBUG")
     temp_path = "/tmp/uploaded_llm.pdf"
     with open(temp_path, "wb") as f:
         f.write(uploaded_pdf.read())
-
     job_info = whisperer.whisper(
         file_path=temp_path,
         filename=uploaded_pdf.name,
         mode="form",
         output_mode="layout_preserving"
     )
-
     whisper_hash = job_info.get("whisper_hash")
     if not whisper_hash:
         raise ValueError("Failed to initiate LLMWhisperer job.")
-
     st.info("⏳ Waiting for LLMWhisperer to process the file...")
     for _ in range(20):
         status_info = whisperer.whisper_status(whisper_hash=whisper_hash)
@@ -158,20 +177,16 @@ def extract_llm_pdf(uploaded_pdf, api_key):
         elif status == "error":
             raise ValueError("LLMWhisperer reported an error while processing the document.")
         time.sleep(2)
-
     if status != "processed":
         raise ValueError("Timed out waiting for LLMWhisperer to finish processing.")
+    return whisperer.whisper_retrieve(whisper_hash=whisper_hash)
 
-    result = whisperer.whisper_retrieve(whisper_hash=whisper_hash)
-    return result
-
-# --- Streamlit App UI ---
-st.title("\U0001F4C4 PDF Table Extractor & Excel Updater")
+# --- UI ---
+st.title("📄 PDF Table Extractor & Excel Updater")
 
 mapping_df = pd.read_csv("company_mappings.csv") if os.path.exists("company_mappings.csv") else pd.DataFrame(columns=['Company', 'Original', 'Mapped'])
 companies = sorted(mapping_df['Company'].unique()) if not mapping_df.empty else []
 selected_company = st.selectbox("Select the company:", companies) if companies else None
-
 uploaded_pdf = st.file_uploader("Upload a PDF file", type="pdf")
 mode = st.radio("Choose extraction mode:", ["Standard (Code-based)", "LLM (via LLMWhisperer)", "Adobe PDF Services"])
 
@@ -185,8 +200,7 @@ if uploaded_pdf:
             sheet = wb.active
             data = sheet.values
             columns = next(data)[0:]
-            df = pd.DataFrame(data, columns=columns)
-            df = df.fillna('')
+            df = pd.DataFrame(data, columns=columns).fillna('')
             if selected_company and not mapping_df.empty:
                 df = apply_company_mappings(df, selected_company, mapping_df)
             output = io.BytesIO()
@@ -222,8 +236,18 @@ if uploaded_pdf:
                 st.error("❌ Missing LLMWhisperer API key. Please set it in Streamlit secrets.")
             else:
                 result = extract_llm_pdf(uploaded_pdf, LLM_API_KEY)
-                st.success("✅ LLMWhisperer processing complete.")
-                st.subheader("LLMWhisperer Extracted Output:")
-                st.json(result)
+                raw_text = str(result) if isinstance(result, (dict, list)) else result
+                df = parse_llm_text_to_df(raw_text)
+                if df is not None:
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        df.to_excel(writer, index=False, sheet_name="LLM Extract")
+                    output.seek(0)
+                    st.download_button("📥 Download Extracted Excel", output, "llm_extracted.xlsx")
+                    st.success("✅ Table parsed and converted to Excel.")
+                    st.dataframe(df)
+                else:
+                    st.warning("⚠️ Could not parse structured table from LLMWhisperer output.")
+                    st.text(raw_text)
         except Exception as e:
             st.error(f"❌ Error processing LLMWhisperer extraction: {str(e)}")
